@@ -34,7 +34,7 @@ sudo ln -sf ~/collableton/collableton.py /usr/local/bin/collableton
 collableton --help
 ```
 
-You need read access to this repo to clone it. collableton runs on the `python3` that
+collableton runs on the `python3` that
 comes with Xcode Command Line Tools (`xcode-select --install`). To update it later, run
 `git -C ~/collableton pull`.
 

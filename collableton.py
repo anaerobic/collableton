@@ -194,11 +194,11 @@ def sample_problem(path, rel, project_dir, exists=os.path.exists):
         return None
     project = os.path.join(os.path.abspath(project_dir), "")
     if path and os.path.abspath(path).startswith(project):
-        return None if exists(path) else "is missing from the project folder"
+        return None if exists(path) else "is missing from the project folder, or git won't share it"
     rel = os.path.normpath(rel) if rel else ""
     if rel and not rel.startswith(("/", "..")):
         # Same project folder on the other person's Mac: the absolute path differs, the relative one doesn't.
-        return None if exists(os.path.join(project_dir, rel)) else "is missing from the project folder"
+        return None if exists(os.path.join(project_dir, rel)) else "is missing from the project folder, or git won't share it"
     return "is outside the project folder"
 
 
@@ -358,16 +358,19 @@ def branch(root):
 
 
 def sync(root):
-    """Fast-forward to what's on GitHub. Never merges."""
+    """Bring in what's on GitHub, replaying any versions of yours that aren't shared yet on top.
+    Locks keep two people off the same set, so this only ever combines different files;
+    if the same file did change in both places, stop and leave everything as it was."""
     git("-C", root, "fetch", "-q", "origin")
     remote = f"origin/{branch(root)}"
     if git("-C", root, "rev-parse", "-q", "--verify", remote, check=False).returncode != 0:
         return  # nothing shared yet
-    try:
-        git("-C", root, "merge", "-q", "--ff-only", remote)
-    except CollabletonError as e:
-        raise CollabletonError(f"couldn't get the latest version from GitHub. Usually this means files you "
-                        f"changed here were also changed there.\n{e}")
+    p = git("-C", root, "rebase", "-q", "--autostash", remote, check=False)
+    if p.returncode != 0:
+        git("-C", root, "rebase", "--abort", check=False)
+        msg = (p.stderr or p.stdout).decode(errors="replace").strip()
+        raise CollabletonError("couldn't combine your copy with the latest from GitHub: the same file was "
+                               f"changed in both places. Nothing was lost; ask for help.\n{msg}")
 
 
 # ---------------------------------------------------------------- commands
@@ -380,18 +383,37 @@ def cmd_init(args):
     run("git", "-C", root, "lfs", "install")
     for name, content in ((".gitattributes", GITATTRIBUTES), (".gitignore", GITIGNORE), (CONFIG_FILE, SEED_CONFIG)):
         path = os.path.join(root, name)
-        if os.path.exists(path):
-            print(f"Kept your existing {name}")
-        else:
+        if not os.path.exists(path):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
             print(f"Wrote {name}")
+        elif name != CONFIG_FILE and not set_up(root, name):
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("\n# Added by collableton\n" + content)
+            print(f"Added collableton's rules to your {name}")
+        else:
+            print(f"Kept your existing {name}")
     git("-C", root, "config", "diff.als.textconv", TEXTCONV)
     print("Ready. Next: collableton take, work in Live, then collableton give -m \"what you did\"")
     if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
         print("First connect this folder to an empty GitHub repo:\n"
               "  git remote add origin https://github.com/YOU/OUR-MUSIC.git")
     return 0
+
+
+def set_up(root, name):
+    """Does an existing .gitattributes / .gitignore already do what collableton needs?"""
+    if name == ".gitattributes":
+        attrs = git("-C", root, "check-attr", "filter", "lockable", "--", "probe.als")
+        return "filter: lfs" in attrs and "lockable: set" in attrs
+    return git("-C", root, "check-ignore", "-q", "--no-index", "Backup/probe.als", check=False).returncode == 0
+
+
+def shared_file(root):
+    """-> path -> True if the file exists and git will share it (not ignored)."""
+    def check(path):
+        return os.path.exists(path) and git("-C", root, "check-ignore", "-q", path, check=False).returncode != 0
+    return check
 
 
 def cmd_take(args):
@@ -436,15 +458,22 @@ def cmd_give(args):
         if path not in mine:
             raise CollabletonError(f"you changed {path} without taking it first. Run `collableton take` "
                             "(your changes are kept), then give again.")
-    git("-C", root, "add", "-A", "--", scope)
-    if git("-C", root, "diff", "--cached", "--quiet", "--", scope, check=False).returncode != 0:
-        git("-C", root, "commit", "-q", "-m", args.message, "--", scope)
+    # The shared setup files live at the top, outside any song folder, but always travel along.
+    paths = [scope] + [f for f in (".gitattributes", ".gitignore", CONFIG_FILE)
+                       if scope != "." and os.path.exists(os.path.join(root, f))]
+    git("-C", root, "add", "-A", "--", *paths)
+    if git("-C", root, "diff", "--cached", "--quiet", "--", *paths, check=False).returncode != 0:
+        git("-C", root, "commit", "-q", "-m", args.message, "--", *paths)
     else:
         print("Nothing new to share; just handing the set back.")
-    try:
-        git("-C", root, "push", "-q", "-u", "origin", "HEAD")
-    except CollabletonError as e:
-        raise CollabletonError(f"couldn't upload to GitHub. You still have the set.\n{e}")
+    for attempt in (1, 2):
+        try:
+            git("-C", root, "push", "-q", "-u", "origin", "HEAD")
+            break
+        except CollabletonError as e:
+            if attempt == 2:
+                raise CollabletonError(f"couldn't upload to GitHub. You still have the set.\n{e}")
+            sync(root)  # they shared something else meanwhile: put yours on top and try again
     for lock in ours:
         run("git", "-C", root, "lfs", "unlock", "--id", str(lock["id"]))
     print("Shared and handed back. Your collaborator can now collableton take.")
@@ -490,6 +519,8 @@ def cmd_check(args):
     paths = args.files or project_sets(".")
     if not paths:
         raise CollabletonError("no .als files here.")
+    top = git("rev-parse", "--show-toplevel", check=False)
+    exists = shared_file(top.stdout.decode().strip()) if top.returncode == 0 else os.path.exists
     errors = 0
     for path in paths:
         try:
@@ -498,12 +529,11 @@ def cmd_check(args):
             report(path, [("ERROR", str(e))])
             errors += 1
             continue
-        findings = check_set(summary, load_config(os.path.dirname(os.path.abspath(path))),
-                             os.path.dirname(os.path.abspath(path)))
+        folder = os.path.dirname(os.path.abspath(path))
+        findings = check_set(summary, load_config(folder), folder, exists)
         report(os.path.relpath(path), findings)
         errors += sum(1 for level, _ in findings if level == "ERROR")
     return 1 if errors else 0
-
 
 
 def cmd_diff(args):

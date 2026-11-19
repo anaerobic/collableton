@@ -396,13 +396,69 @@ class GitFlowTest(CliTest):
 
         self.write("A.als", als(EZ, tempo="99"))
         self.write("../Song B Project/B.als", als(EZ, tempo="77"))
+        self.write("../collableton.toml", collableton.SEED_CONFIG.replace('"EZdrummer 3",', '"EZdrummer 3", "Serum",').encode())
         ours = [{"id": "1", "path": "Song A Project/A.als"}, {"id": "2", "path": "Song B Project/B.als"}]
         with self.fake_locks(ours=ours), mock.patch.object(collableton, "run", run):
             code, out = self.cli("give", "-m", "A only")
         self.assertEqual(code, 0, out)
         self.assertEqual(calls[1:], [("unlock", "1")])
-        self.assertEqual(sh("git", "show", "--name-only", "--format=", "HEAD").split("\n")[:-1], ["Song A Project/A.als"])
+        # The shared rules file travels with any song's give; the other song stays put.
+        self.assertEqual(sh("git", "show", "--name-only", "--format=", "HEAD").split("\n")[:-1],
+                         ["Song A Project/A.als", "collableton.toml"])
         self.assertIn("Song B Project/B.als", sh("git", "status", "--porcelain"))
+
+    def no_lock_calls(self):
+        real_run = collableton.run
+
+        def run(*cmd, **kw):
+            return "" if cmd[3:5] in (("lfs", "lock"), ("lfs", "unlock")) else real_run(*cmd, **kw)
+        return mock.patch.object(collableton, "run", run)
+
+    def test_two_people_giving_different_songs_both_get_shared(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        for song in ("A", "B"):
+            os.makedirs(f"Song {song}")
+            self.write(f"Song {song}/{song}.als", als(EZ))
+        self.commit("two songs")
+        sh("git", "push", "-q", "-u", "origin", "HEAD")
+        me = os.getcwd()
+        sh("git", "clone", "-q", self.remote, "../other")
+        os.chdir("../other")
+        self.cli("init")
+        them = os.getcwd()
+
+        with self.no_lock_calls(), self.fake_locks(ours=[{"id": "1", "path": "Song A/A.als"},
+                                                          {"id": "2", "path": "Song B/B.als"}]):
+            os.chdir(os.path.join(me, "Song A"))
+            self.write("A.als", als(EZ, tempo="101"))
+            os.chdir(os.path.join(them, "Song B"))
+            self.write("B.als", als(EZ, tempo="102"))
+            os.chdir(os.path.join(me, "Song A"))
+            self.assertEqual(self.cli("give", "-m", "A")[0], 0)
+            os.chdir(os.path.join(them, "Song B"))
+            code, out = self.cli("give", "-m", "B")  # GitHub moved on meanwhile
+            self.assertEqual(code, 0, out)
+            os.chdir(os.path.join(me, "Song A"))
+            self.assertEqual(self.cli("take")[0], 0)
+        self.assertEqual(sh("git", "log", "--format=%s", "-3").splitlines(), ["B", "A", "two songs"])
+        self.assertEqual(collableton.load_set(os.path.join(me, "Song B/B.als"))["tempo"], "102")
+
+    def test_ignored_sample_fails_check(self):
+        os.makedirs("stems")
+        self.write("stems/kick.wav", b"RIFF")
+        self.write("Song.als", als(track("AudioTrack", 1, "Kick", sample(os.path.join(os.getcwd(), "stems/kick.wav")))))
+        code, out = self.cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("git won't share it", out)
+
+    def test_init_adds_missing_rules_to_existing_files(self):
+        self.write(".gitattributes", b"*.wav filter=lfs diff=lfs merge=lfs -text\n")
+        self.write(".gitignore", b"*.tmp\n")
+        code, out = self.cli("init")
+        self.assertEqual(out.count("Added collableton's rules"), 2)
+        self.assertIn("lockable: set", sh("git", "check-attr", "lockable", "--", "Song.als"))
+        self.assertEqual(subprocess.run(["git", "check-ignore", "-q", "Backup/x.als"]).returncode, 0)
+        self.assertEqual(self.cli("init")[1].count("Kept your existing"), 3)
 
     def test_give_commits_pushes_and_unlocks(self):
         sh("git", "remote", "add", "origin", self.remote)
