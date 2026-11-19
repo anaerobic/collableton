@@ -35,6 +35,30 @@ PLUGIN_DEVICES = ("PluginDevice", "AuPluginDevice")
 TRACK_KINDS = {"MidiTrack": "MIDI", "AudioTrack": "audio", "GroupTrack": "group",
                "ReturnTrack": "return", "MainTrack": "main", "MasterTrack": "main"}
 CORE_LIBRARY = re.compile(r"^/Applications/Ableton Live 12[^/]*\.app/")
+AUDIO = ("wav", "aif", "aiff", "mp3", "flac", "ogg", "m4a")
+GITATTRIBUTES = """\
+# Live sets: kept in Git LFS, locked while someone works on them, never merged.
+*.als filter=lfs diff=als merge=binary -text lockable
+# Audio: kept in Git LFS.
+""" + "".join(f"*.{''.join(f'[{c}{c.upper()}]' for c in ext)} filter=lfs diff=lfs merge=lfs -text\n"
+              for ext in AUDIO)
+GITIGNORE = """\
+# Live's automatic backups stay on your own Mac.
+Backup/
+# Live rebuilds sample analysis files on its own.
+*.asd
+# Rendered stems don't go in git (see README).
+stems/
+# macOS and iCloud clutter. iCloud's numbered conflict copies ("Song 2.als")
+# aren't ignored, because a real set can have a number in its name.
+.DS_Store
+Icon\r\r
+*.icloud
+*(conflicted copy)*
+"""
+# git may hand us an LFS pointer instead of the set: smudge it back (real content passes
+# through, with a warning we silence), then unzip the XML.
+TEXTCONV = 'f() { git lfs smudge < "$1" 2>/dev/null | gzip -dc; }; f'
 
 
 class RiffError(Exception):
@@ -282,7 +306,165 @@ def project_sets(root):
     return sorted(found)
 
 
+def changed_sets(porcelain_z):
+    """Paths of .als files in `git status --porcelain -z` output."""
+    entries, out = iter(porcelain_z.split("\0")), []
+    for e in entries:
+        if e[:1] in ("R", "C"):
+            next(entries, None)  # the rename's original path
+        if e[3:].endswith(".als"):
+            out.append(e[3:])
+    return out
+
+
+def when(locked_at):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(locked_at.replace("Z", "+00:00")).astimezone().strftime("%a %b %-d, %H:%M")
+    except ValueError:
+        return locked_at
+
+
+def lock_line(lock, mine=False):
+    who = "you" if mine else lock.get("owner", {}).get("name", "someone")
+    return f'{lock["path"]}: taken by {who} since {when(lock.get("locked_at", ""))}'
+
+
+def locks(root):
+    """-> (ours, theirs), each a list of git-lfs lock dicts."""
+    data = json.loads(run("git", "-C", root, "lfs", "locks", "--verify", "--json") or "{}")
+    return data.get("ours") or [], data.get("theirs") or []
+
+
+def require_origin(root):
+    if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
+        raise RiffError("this project isn't connected to GitHub yet. Create an empty repo there, then:\n"
+                        "  git remote add origin https://github.com/YOU/SONG.git")
+
+
+def branch(root):
+    return git("-C", root, "branch", "--show-current").strip() or "main"
+
+
+def sync(root):
+    """Fast-forward to what's on GitHub. Never merges."""
+    git("-C", root, "fetch", "-q", "origin")
+    remote = f"origin/{branch(root)}"
+    if git("-C", root, "rev-parse", "-q", "--verify", remote, check=False).returncode != 0:
+        return  # nothing shared yet
+    try:
+        git("-C", root, "merge", "-q", "--ff-only", remote)
+    except RiffError as e:
+        raise RiffError(f"couldn't get the latest version from GitHub. Usually this means files you "
+                        f"changed here were also changed there.\n{e}")
+
+
 # ---------------------------------------------------------------- commands
+
+def cmd_init(args):
+    if git("rev-parse", "--show-toplevel", check=False).returncode != 0:
+        git("init", "-q")
+        print("Started a git repository here.")
+    root = repo_root()
+    run("git", "-C", root, "lfs", "install")
+    for name, content in ((".gitattributes", GITATTRIBUTES), (".gitignore", GITIGNORE), (CONFIG_FILE, SEED_CONFIG)):
+        path = os.path.join(root, name)
+        if os.path.exists(path):
+            print(f"Kept your existing {name}")
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"Wrote {name}")
+    git("-C", root, "config", "diff.als.textconv", TEXTCONV)
+    print("Ready. Next: riff take, work in Live, then riff give -m \"what you did\"")
+    if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
+        print("First connect this folder to an empty GitHub repo:\n"
+              "  git remote add origin https://github.com/YOU/SONG.git")
+    return 0
+
+
+def cmd_take(args):
+    root = repo_root()
+    require_origin(root)
+    sync(root)
+    sets = project_sets(root)
+    if not sets:
+        raise RiffError("no .als files in this project yet. Save your set into this folder first.")
+    ours, theirs = locks(root)
+    blocked = [lock for lock in theirs if lock["path"] in sets]
+    if blocked:
+        for lock in blocked:
+            print(lock_line(lock))
+        raise RiffError("someone else is working on this. Ask them to run `riff give`, then try again.")
+    mine = {lock["path"] for lock in ours}
+    for path in sets:
+        if path not in mine:
+            run("git", "-C", root, "lfs", "lock", "--json", path)
+    print("You have it: " + ", ".join(sets))
+    print('Work in Live, save, then: riff give -m "what you did"')
+    return 0
+
+
+def cmd_give(args):
+    root = repo_root()
+    require_origin(root)
+    if cmd_check(argparse.Namespace(files=[])) != 0:
+        if not args.force:
+            raise RiffError("fix the errors above, then run give again (or `riff give --force` to share anyway).")
+        print("\n!!! --force: sharing a set that FAILED the check. Your collaborator may hear\n"
+              "!!! something different or be unable to open it.\n")
+    ours, theirs = locks(root)
+    mine, others = {lock["path"] for lock in ours}, {lock["path"]: lock for lock in theirs}
+    changed = changed_sets(git("-C", root, "status", "--porcelain", "-z", "--untracked-files=all"))
+    for path in changed:
+        if path in others:
+            raise RiffError(f"{lock_line(others[path])}. Sharing your copy would overwrite their work.")
+        if path not in mine:
+            raise RiffError(f"you changed {path} without taking it first. Run `riff take` "
+                            "(your changes are kept), then give again.")
+    git("-C", root, "add", "-A")
+    if git("-C", root, "diff", "--cached", "--quiet", check=False).returncode != 0:
+        git("-C", root, "commit", "-q", "-m", args.message)
+    else:
+        print("Nothing new to share; just handing the set back.")
+    try:
+        git("-C", root, "push", "-q", "-u", "origin", "HEAD")
+    except RiffError as e:
+        raise RiffError(f"couldn't upload to GitHub. You still have the set.\n{e}")
+    for lock in ours:
+        run("git", "-C", root, "lfs", "unlock", "--id", str(lock["id"]))
+    print("Shared and handed back. Your collaborator can now riff take.")
+    return 0
+
+
+def cmd_status(args):
+    root = repo_root()
+    online = git("-C", root, "fetch", "-q", "origin", check=False).returncode == 0
+    if not online:
+        print("Couldn't reach GitHub; showing what this Mac knows.")
+    else:
+        ours, theirs = locks(root)
+        for lock in ours:
+            print(lock_line(lock, mine=True))
+        for lock in theirs:
+            print(lock_line(lock))
+        if not ours and not theirs:
+            print("Nobody has taken anything.")
+        remote = f"origin/{branch(root)}"
+        if git("-C", root, "rev-parse", "-q", "--verify", remote, check=False).returncode == 0:
+            ahead, behind = git("-C", root, "rev-list", "--left-right", "--count", f"HEAD...{remote}").split()
+            if behind != "0":
+                print(f"GitHub has {behind} newer version(s). riff take will get them.")
+            if ahead != "0":
+                print(f"{ahead} version(s) here aren't on GitHub yet.")
+    dirty = git("-C", root, "status", "--porcelain").splitlines()
+    if dirty:
+        print(f"{len(dirty)} file(s) changed here since the last give.")
+    log = git("-C", root, "log", "-5", "--format=  %h  %ar  %an: %s", check=False)
+    if log.returncode == 0:
+        print("Recent versions:\n" + log.stdout.decode(errors="replace").rstrip())
+    return 0
+
 
 def report(path, findings):
     print(f"{path}: " + ("OK" if not findings else ""))
@@ -358,6 +540,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="riff", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="command")
+    sub.add_parser("init", help="set up this Live project folder for sharing").set_defaults(fn=cmd_init)
+    sub.add_parser("take", help="get the latest version and lock it so only you can change it").set_defaults(fn=cmd_take)
+    p = sub.add_parser("give", help="check, share your changes, and unlock")
+    p.add_argument("-m", "--message", required=True, help="what you changed")
+    p.add_argument("--force", action="store_true", help="share even if the check finds errors")
+    p.set_defaults(fn=cmd_give)
+    sub.add_parser("status", help="who has the set, and what's new").set_defaults(fn=cmd_status)
     p = sub.add_parser("check", help="look for sharing mistakes in a set")
     p.add_argument("files", nargs="*", metavar="file.als")
     p.set_defaults(fn=cmd_check)

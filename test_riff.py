@@ -2,8 +2,11 @@ import contextlib
 import gzip
 import io
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import riff
 
@@ -211,6 +214,8 @@ class CliTest(unittest.TestCase):
         self.addCleanup(os.chdir, self.cwd)
 
     def write(self, name, data):
+        if os.path.exists(name):
+            os.chmod(name, 0o644)  # LFS makes committed, unlocked sets read-only
         with open(name, "wb") as f:
             f.write(data)
         return name
@@ -248,6 +253,143 @@ class CliTest(unittest.TestCase):
         code, out = self.cli("diff", "a.als", "b.als")
         self.assertEqual(code, 0)
         self.assertIn("Tempo: 120 -> 90 BPM", out)
+
+
+class GitHelpersTest(unittest.TestCase):
+    def test_changed_sets(self):
+        out = "?? new.als\0 M Song.als\0R  b.als\0a.als\0 M Samples/x.wav\0"
+        self.assertEqual(riff.changed_sets(out), ["new.als", "Song.als", "b.als"])
+
+    def test_lock_line(self):
+        lock = {"id": "7", "path": "Song.als", "owner": {"name": "pma"}, "locked_at": "2026-11-18T21:03:44Z"}
+        self.assertRegex(riff.lock_line(lock), r"^Song\.als: taken by pma since \w{3} Nov 1[89], \d\d:\d\d$")
+        self.assertIn("taken by you", riff.lock_line(lock, mine=True))
+
+
+def sh(*cmd, cwd=None):
+    return subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+
+@unittest.skipUnless(shutil.which("git-lfs"), "needs git-lfs (brew install git-lfs)")
+class GitFlowTest(CliTest):
+    """Real git + LFS against a local bare remote. LFS locking itself needs a real server
+    (GitHub), so lock lookups are faked here."""
+
+    def setUp(self):
+        super().setUp()
+        home = os.path.join(self.dir.name, "home")
+        os.mkdir(home)
+        env = {"HOME": home, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.remote = os.path.join(self.dir.name, "remote.git")
+        sh("git", "init", "-q", "--bare", self.remote)
+        os.mkdir("proj")
+        os.chdir("proj")
+        self.assertEqual(self.cli("init")[0], 0)
+
+    def commit(self, msg):
+        sh("git", "add", "-A")
+        sh("git", "commit", "-q", "-m", msg)
+
+    def fake_locks(self, ours=(), theirs=()):
+        return mock.patch.object(riff, "locks", return_value=(list(ours), list(theirs)))
+
+    def test_init_writes_setup_once(self):
+        with open(".gitattributes") as f:
+            self.assertIn("*.als filter=lfs diff=als merge=binary -text lockable", f.read())
+        self.assertEqual(sh("git", "config", "diff.als.textconv").strip(), riff.TEXTCONV)
+        self.assertTrue(os.path.isfile(".gitignore") and os.path.isfile("riff.toml"))
+        self.write("riff.toml", b'plugins = ["Serum"]\n')
+        code, out = self.cli("init")
+        self.assertEqual(out.count("Kept your existing"), 3)
+        with open("riff.toml") as f:
+            self.assertIn("Serum", f.read())
+
+    def test_sets_and_audio_go_to_lfs_and_backups_are_ignored(self):
+        os.makedirs("Backup")
+        os.makedirs("Samples")
+        self.write("Song.als", als(EZ))
+        self.write("Samples/Kick.WAV", b"RIFF")
+        self.write("Backup/Song [2026-11-18].als", als(EZ))
+        self.commit("v1")
+        self.assertEqual(sorted(sh("git", "lfs", "ls-files", "-n").split("\n")[:-1]), ["Samples/Kick.WAV", "Song.als"])
+        self.assertNotIn("Backup", sh("git", "ls-files"))
+
+    def test_git_diff_shows_set_as_xml(self):
+        self.write("Song.als", als(EZ))
+        self.commit("v1")
+        self.write("Song.als", als(EZ, tempo="128"))
+        out = sh("git", "diff")
+        self.assertIn('+<?xml', out)
+        self.assertIn('<Manual Value="128"/>', out)
+
+    def test_riff_diff_revisions_and_working_copy(self):
+        self.write("Song.als", als(EZ))
+        self.commit("v1")
+        self.write("Song.als", als(EZ, tempo="90"))
+        self.commit("v2")
+        self.assertIn("Tempo: 120 -> 90 BPM", self.cli("diff", "HEAD~1", "HEAD")[1])
+        self.assertIn("No sets changed", self.cli("diff")[1])
+        self.write("Song.als", als(EZ, track("AudioTrack", 2, "Vox"), tempo="90"))
+        self.assertIn('+ added track "Vox"', self.cli("diff", "Song.als")[1])
+        self.write("Other.als", als())
+        self.commit("v3")
+        self.assertIn("new set", self.cli("diff", "HEAD~1", "HEAD")[1])
+
+    def test_take_needs_a_remote(self):
+        code, out = self.cli("take")
+        self.assertEqual(code, 1)
+        self.assertIn("isn't connected to GitHub", out)
+
+    def test_take_refuses_when_someone_else_has_it(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        self.write("Song.als", als(EZ))
+        lock = {"id": "1", "path": "Song.als", "owner": {"name": "pma"}, "locked_at": "2026-11-18T21:03:44Z"}
+        with self.fake_locks(theirs=[lock]):
+            code, out = self.cli("take")
+        self.assertEqual(code, 1)
+        self.assertIn("Song.als: taken by pma since", out)
+
+    def test_give_refuses_untaken_or_their_set(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        self.write("Song.als", als(EZ))
+        with self.fake_locks():
+            code, out = self.cli("give", "-m", "x")
+        self.assertEqual(code, 1)
+        self.assertIn("without taking it first", out)
+        with self.fake_locks(theirs=[{"id": "1", "path": "Song.als", "owner": {"name": "pma"}}]):
+            code, out = self.cli("give", "-m", "x")
+        self.assertIn("would overwrite their work", out)
+
+    def test_give_stops_on_check_errors_unless_forced(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        self.write("Song.als", als(track("MidiTrack", 1, "Bass", plugin("Serum") + midi_clip(1))))
+        with self.fake_locks():
+            code, out = self.cli("give", "-m", "x")
+            self.assertEqual(code, 1)
+            self.assertIn("fix the errors above", out)
+            code, out = self.cli("give", "-m", "x", "--force")
+        self.assertIn("!!! --force", out)
+        self.assertIn("without taking it first", out)  # --force never skips the lock check
+
+    def test_give_commits_pushes_and_unlocks(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        self.write("Song.als", als(EZ))
+        real_run, unlocked = riff.run, []
+
+        def run(*cmd, **kw):
+            if cmd[3:5] == ("lfs", "unlock"):
+                return unlocked.append(cmd[-1]) or ""
+            return real_run(*cmd, **kw)
+
+        with self.fake_locks(ours=[{"id": "42", "path": "Song.als"}]), mock.patch.object(riff, "run", run):
+            code, out = self.cli("give", "-m", "First groove")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(unlocked, ["42"])
+        self.assertIn("First groove", sh("git", "--git-dir", self.remote, "log", "--format=%s"))
 
 
 if __name__ == "__main__":
