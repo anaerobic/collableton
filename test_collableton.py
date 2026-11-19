@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import riff
+import collableton
 
 # ---------------------------------------------------------------- tiny synthetic .als builders
 
@@ -48,15 +48,15 @@ def als(*tracks, creator="Ableton Live 12.4.16", tempo="120"):
 
 
 def summary(*tracks, **kw):
-    return riff.summarize(riff.read_als(als(*tracks, **kw)))
+    return collableton.summarize(collableton.read_als(als(*tracks, **kw)))
 
 
-CFG = dict(riff.DEFAULT_CONFIG)
+CFG = dict(collableton.DEFAULT_CONFIG)
 EZ = track("MidiTrack", 1, "Drums", plugin("EZdrummer 3") + midi_clip(8))
 
 
 def findings(*tracks, cfg=CFG, project="/proj", exists=lambda p: True, **kw):
-    return riff.check_set(summary(*tracks, **kw), cfg, project, exists)
+    return collableton.check_set(summary(*tracks, **kw), cfg, project, exists)
 
 
 def levels(*tracks, **kw):
@@ -68,19 +68,19 @@ def levels(*tracks, **kw):
 
 class ConfigTest(unittest.TestCase):
     def test_flat_values(self):
-        cfg = riff.parse_config('# shared\nmin_live_version = "12.4"  # oldest\nplugins = ["A", "B"]\nn = 3\n')
+        cfg = collableton.parse_config('# shared\nmin_live_version = "12.4"  # oldest\nplugins = ["A", "B"]\nn = 3\n')
         self.assertEqual(cfg, {"min_live_version": "12.4", "plugins": ["A", "B"], "n": 3})
 
     def test_multiline_array_with_comments_and_trailing_comma(self):
-        cfg = riff.parse_config('plugins = [\n  "EZdrummer 3",  # drums\n  # "Serum",\n  "Valhalla",\n]\n')
+        cfg = collableton.parse_config('plugins = [\n  "EZdrummer 3",  # drums\n  # "Serum",\n  "Valhalla",\n]\n')
         self.assertEqual(cfg["plugins"], ["EZdrummer 3", "Valhalla"])
 
     def test_bad_value_is_friendly(self):
-        with self.assertRaisesRegex(riff.RiffError, "double quotes"):
-            riff.parse_config("plugins = ['EZdrummer 3']")
+        with self.assertRaisesRegex(collableton.CollabletonError, "double quotes"):
+            collableton.parse_config("plugins = ['EZdrummer 3']")
 
     def test_seed_config_round_trips(self):
-        self.assertEqual(riff.parse_config(riff.SEED_CONFIG), riff.DEFAULT_CONFIG)
+        self.assertEqual(collableton.parse_config(collableton.SEED_CONFIG), collableton.DEFAULT_CONFIG)
 
 
 class ReadTest(unittest.TestCase):
@@ -102,16 +102,16 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(summary(track("MidiTrack", 1, "x", PRESET_REF))["tracks"][0]["samples"], [])
 
     def test_plain_xml_is_accepted(self):
-        self.assertEqual(riff.read_als(gzip.decompress(als())).tag, "Ableton")
+        self.assertEqual(collableton.read_als(gzip.decompress(als())).tag, "Ableton")
 
     def test_lfs_pointer_is_explained(self):
-        with self.assertRaisesRegex(riff.RiffError, "git lfs pull"):
-            riff.read_als(b"version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 1\n")
+        with self.assertRaisesRegex(collableton.CollabletonError, "git lfs pull"):
+            collableton.read_als(b"version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 1\n")
 
     def test_not_a_set(self):
         for junk in (b"hello", gzip.compress(b"<Other/>"), b"\x1f\x8bnope"):
-            with self.assertRaises(riff.RiffError):
-                riff.read_als(junk)
+            with self.assertRaises(collableton.CollabletonError):
+                collableton.read_als(junk)
 
 
 class CheckTest(unittest.TestCase):
@@ -177,7 +177,7 @@ class CheckTest(unittest.TestCase):
 
 class DiffTest(unittest.TestCase):
     def diff(self, a, b):
-        return riff.diff_sets(a, b)
+        return collableton.diff_sets(a, b)
 
     def test_no_changes(self):
         self.assertIn("No changes", self.diff(summary(EZ), summary(EZ))[0])
@@ -223,7 +223,7 @@ class CliTest(unittest.TestCase):
     def cli(self, *argv):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = riff.main(list(argv))
+            code = collableton.main(list(argv))
         return code, out.getvalue() + err.getvalue()
 
     def test_check_exit_codes(self):
@@ -234,8 +234,8 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("Serum", out)
 
-    def test_check_uses_project_riff_toml(self):
-        self.write("riff.toml", b'plugins = ["EZdrummer 3", "Serum"]\n')
+    def test_check_uses_project_collableton_toml(self):
+        self.write("collableton.toml", b'plugins = ["EZdrummer 3", "Serum"]\n')
         self.write("bad.als", als(track("MidiTrack", 1, "Bass", plugin("Serum") + midi_clip(1))))
         self.assertEqual(self.cli("check")[0], 0)
 
@@ -258,12 +258,12 @@ class CliTest(unittest.TestCase):
 class GitHelpersTest(unittest.TestCase):
     def test_changed_sets(self):
         out = "?? new.als\0 M Song.als\0R  b.als\0a.als\0 M Samples/x.wav\0"
-        self.assertEqual(riff.changed_sets(out), ["new.als", "Song.als", "b.als"])
+        self.assertEqual(collableton.changed_sets(out), ["new.als", "Song.als", "b.als"])
 
     def test_lock_line(self):
         lock = {"id": "7", "path": "Song.als", "owner": {"name": "pma"}, "locked_at": "2026-11-18T21:03:44Z"}
-        self.assertRegex(riff.lock_line(lock), r"^Song\.als: taken by pma since \w{3} Nov 1[89], \d\d:\d\d$")
-        self.assertIn("taken by you", riff.lock_line(lock, mine=True))
+        self.assertRegex(collableton.lock_line(lock), r"^Song\.als: taken by pma since \w{3} Nov 1[89], \d\d:\d\d$")
+        self.assertIn("taken by you", collableton.lock_line(lock, mine=True))
 
 
 def sh(*cmd, cwd=None):
@@ -295,17 +295,17 @@ class GitFlowTest(CliTest):
         sh("git", "commit", "-q", "-m", msg)
 
     def fake_locks(self, ours=(), theirs=()):
-        return mock.patch.object(riff, "locks", return_value=(list(ours), list(theirs)))
+        return mock.patch.object(collableton, "locks", return_value=(list(ours), list(theirs)))
 
     def test_init_writes_setup_once(self):
         with open(".gitattributes") as f:
             self.assertIn("*.als filter=lfs diff=als merge=binary -text lockable", f.read())
-        self.assertEqual(sh("git", "config", "diff.als.textconv").strip(), riff.TEXTCONV)
-        self.assertTrue(os.path.isfile(".gitignore") and os.path.isfile("riff.toml"))
-        self.write("riff.toml", b'plugins = ["Serum"]\n')
+        self.assertEqual(sh("git", "config", "diff.als.textconv").strip(), collableton.TEXTCONV)
+        self.assertTrue(os.path.isfile(".gitignore") and os.path.isfile("collableton.toml"))
+        self.write("collableton.toml", b'plugins = ["Serum"]\n')
         code, out = self.cli("init")
         self.assertEqual(out.count("Kept your existing"), 3)
-        with open("riff.toml") as f:
+        with open("collableton.toml") as f:
             self.assertIn("Serum", f.read())
 
     def test_sets_and_audio_go_to_lfs_and_backups_are_ignored(self):
@@ -326,7 +326,7 @@ class GitFlowTest(CliTest):
         self.assertIn('+<?xml', out)
         self.assertIn('<Manual Value="128"/>', out)
 
-    def test_riff_diff_revisions_and_working_copy(self):
+    def test_collableton_diff_revisions_and_working_copy(self):
         self.write("Song.als", als(EZ))
         self.commit("v1")
         self.write("Song.als", als(EZ, tempo="90"))
@@ -378,14 +378,14 @@ class GitFlowTest(CliTest):
     def test_give_commits_pushes_and_unlocks(self):
         sh("git", "remote", "add", "origin", self.remote)
         self.write("Song.als", als(EZ))
-        real_run, unlocked = riff.run, []
+        real_run, unlocked = collableton.run, []
 
         def run(*cmd, **kw):
             if cmd[3:5] == ("lfs", "unlock"):
                 return unlocked.append(cmd[-1]) or ""
             return real_run(*cmd, **kw)
 
-        with self.fake_locks(ours=[{"id": "42", "path": "Song.als"}]), mock.patch.object(riff, "run", run):
+        with self.fake_locks(ours=[{"id": "42", "path": "Song.als"}]), mock.patch.object(collableton, "run", run):
             code, out = self.cli("give", "-m", "First groove")
         self.assertEqual(code, 0, out)
         self.assertEqual(unlocked, ["42"])

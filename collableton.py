@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""riff: share Ableton Live sets over git without overwriting each other.
+"""collableton: share Ableton Live sets over git without overwriting each other.
 
-take -> work in Live -> give.  `riff --help` for commands.
+take -> work in Live -> give.  `collableton --help` for commands.
 """
 import argparse
 import gzip
@@ -13,7 +13,7 @@ import sys
 from collections import Counter
 import xml.etree.ElementTree as ET
 
-CONFIG_FILE = "riff.toml"
+CONFIG_FILE = "collableton.toml"
 DEFAULT_CONFIG = {"min_live_version": "12.4", "plugin_format": "VST3", "plugins": ["EZdrummer 3"]}
 SEED_CONFIG = """\
 # Shared rules for this project. Both collaborators use the same file.
@@ -61,14 +61,14 @@ Icon\r\r
 TEXTCONV = 'f() { git lfs smudge < "$1" 2>/dev/null | gzip -dc; }; f'
 
 
-class RiffError(Exception):
+class CollabletonError(Exception):
     """A problem to show the musician as-is (no traceback)."""
 
 
 # ---------------------------------------------------------------- config
 
 def parse_config(text):
-    """Read the flat TOML subset riff.toml uses: key = "str" | 123 | ["a", "b"]."""
+    """Read the flat TOML subset collableton.toml uses: key = "str" | 123 | ["a", "b"]."""
     # ponytail: not a real TOML parser (no tables, no single-quoted strings); tomllib needs 3.11
     cfg, decoder = {}, json.JSONDecoder()
     lines = iter(text.splitlines())
@@ -78,7 +78,7 @@ def parse_config(text):
             continue
         key, sep, value = line.partition("=")
         if not sep:
-            raise RiffError(f'riff.toml: expected `name = value`, got: {line}')
+            raise CollabletonError(f'collableton.toml: expected `name = value`, got: {line}')
         value = value.strip()
         while True:
             try:
@@ -87,7 +87,7 @@ def parse_config(text):
             except ValueError:
                 more = next(lines, None) if value.startswith("[") else None
                 if more is None:
-                    raise RiffError(f'riff.toml: can\'t read the value of "{key.strip()}". '
+                    raise CollabletonError(f'collableton.toml: can\'t read the value of "{key.strip()}". '
                                     'Use double quotes for text, e.g. plugins = ["EZdrummer 3"]')
                 if not more.strip().startswith("#"):
                     value += " " + more.split(" #")[0]
@@ -95,7 +95,7 @@ def parse_config(text):
 
 
 def load_config(start_dir):
-    """Find riff.toml in start_dir or a parent; fall back to defaults."""
+    """Find collableton.toml in start_dir or a parent; fall back to defaults."""
     d = os.path.abspath(start_dir)
     while True:
         path = os.path.join(d, CONFIG_FILE)
@@ -123,18 +123,18 @@ def _value(el, path):
 def read_als(data):
     """Bytes of a .als (gzipped or plain XML) -> root Element."""
     if data.startswith(b"version https://git-lfs"):
-        raise RiffError("this is a Git LFS placeholder, not the real set. Run: git lfs pull")
+        raise CollabletonError("this is a Git LFS placeholder, not the real set. Run: git lfs pull")
     if data[:2] == b"\x1f\x8b":
         try:
             data = gzip.decompress(data)
         except (OSError, EOFError):
-            raise RiffError("the file is damaged (couldn't unzip it)")
+            raise CollabletonError("the file is damaged (couldn't unzip it)")
     try:
         root = ET.fromstring(data)
     except ET.ParseError:
-        raise RiffError("this doesn't look like an Ableton Live set")
+        raise CollabletonError("this doesn't look like an Ableton Live set")
     if root.tag != "Ableton":
-        raise RiffError("this doesn't look like an Ableton Live set")
+        raise CollabletonError("this doesn't look like an Ableton Live set")
     return root
 
 
@@ -164,10 +164,10 @@ def _track(el):
 
 
 def summarize(root):
-    """Root Element -> plain dict of what riff cares about."""
+    """Root Element -> plain dict of what collableton cares about."""
     live_set = root.find("LiveSet")
     if live_set is None:
-        raise RiffError("this doesn't look like an Ableton Live set (no LiveSet inside)")
+        raise CollabletonError("this doesn't look like an Ableton Live set (no LiveSet inside)")
     tracks_el = live_set.find("Tracks")
     els = (list(tracks_el) if tracks_el is not None else []) + \
           [e for e in live_set if e.tag in ("MainTrack", "MasterTrack")]
@@ -275,14 +275,14 @@ def diff_sets(a, b):
 # ---------------------------------------------------------------- git plumbing
 
 def run(*cmd, check=True):
-    """Run a command, return stdout. On failure raise RiffError with git's own words."""
+    """Run a command, return stdout. On failure raise CollabletonError with git's own words."""
     try:
         p = subprocess.run(cmd, capture_output=True)
     except FileNotFoundError:
-        raise RiffError(f"{cmd[0]} isn't installed. See the README (brew install git-lfs).")
+        raise CollabletonError(f"{cmd[0]} isn't installed. See the README (brew install git-lfs).")
     if check and p.returncode != 0:
         msg = (p.stderr or p.stdout).decode(errors="replace").strip()
-        raise RiffError(f"`{' '.join(cmd)}` failed:\n{msg}")
+        raise CollabletonError(f"`{' '.join(cmd)}` failed:\n{msg}")
     return p.stdout.decode(errors="replace") if check else p
 
 
@@ -293,7 +293,7 @@ def git(*args, check=True):
 def repo_root():
     p = git("rev-parse", "--show-toplevel", check=False)
     if p.returncode != 0:
-        raise RiffError("this folder isn't shared with riff yet. Run `riff init` inside the Live project folder.")
+        raise CollabletonError("this folder isn't shared with collableton yet. Run `collableton init` inside the Live project folder.")
     return p.stdout.decode().strip()
 
 
@@ -338,7 +338,7 @@ def locks(root):
 
 def require_origin(root):
     if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
-        raise RiffError("this project isn't connected to GitHub yet. Create an empty repo there, then:\n"
+        raise CollabletonError("this project isn't connected to GitHub yet. Create an empty repo there, then:\n"
                         "  git remote add origin https://github.com/YOU/SONG.git")
 
 
@@ -354,8 +354,8 @@ def sync(root):
         return  # nothing shared yet
     try:
         git("-C", root, "merge", "-q", "--ff-only", remote)
-    except RiffError as e:
-        raise RiffError(f"couldn't get the latest version from GitHub. Usually this means files you "
+    except CollabletonError as e:
+        raise CollabletonError(f"couldn't get the latest version from GitHub. Usually this means files you "
                         f"changed here were also changed there.\n{e}")
 
 
@@ -376,7 +376,7 @@ def cmd_init(args):
                 f.write(content)
             print(f"Wrote {name}")
     git("-C", root, "config", "diff.als.textconv", TEXTCONV)
-    print("Ready. Next: riff take, work in Live, then riff give -m \"what you did\"")
+    print("Ready. Next: collableton take, work in Live, then collableton give -m \"what you did\"")
     if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
         print("First connect this folder to an empty GitHub repo:\n"
               "  git remote add origin https://github.com/YOU/SONG.git")
@@ -389,19 +389,19 @@ def cmd_take(args):
     sync(root)
     sets = project_sets(root)
     if not sets:
-        raise RiffError("no .als files in this project yet. Save your set into this folder first.")
+        raise CollabletonError("no .als files in this project yet. Save your set into this folder first.")
     ours, theirs = locks(root)
     blocked = [lock for lock in theirs if lock["path"] in sets]
     if blocked:
         for lock in blocked:
             print(lock_line(lock))
-        raise RiffError("someone else is working on this. Ask them to run `riff give`, then try again.")
+        raise CollabletonError("someone else is working on this. Ask them to run `collableton give`, then try again.")
     mine = {lock["path"] for lock in ours}
     for path in sets:
         if path not in mine:
             run("git", "-C", root, "lfs", "lock", "--json", path)
     print("You have it: " + ", ".join(sets))
-    print('Work in Live, save, then: riff give -m "what you did"')
+    print('Work in Live, save, then: collableton give -m "what you did"')
     return 0
 
 
@@ -410,7 +410,7 @@ def cmd_give(args):
     require_origin(root)
     if cmd_check(argparse.Namespace(files=[])) != 0:
         if not args.force:
-            raise RiffError("fix the errors above, then run give again (or `riff give --force` to share anyway).")
+            raise CollabletonError("fix the errors above, then run give again (or `collableton give --force` to share anyway).")
         print("\n!!! --force: sharing a set that FAILED the check. Your collaborator may hear\n"
               "!!! something different or be unable to open it.\n")
     ours, theirs = locks(root)
@@ -418,9 +418,9 @@ def cmd_give(args):
     changed = changed_sets(git("-C", root, "status", "--porcelain", "-z", "--untracked-files=all"))
     for path in changed:
         if path in others:
-            raise RiffError(f"{lock_line(others[path])}. Sharing your copy would overwrite their work.")
+            raise CollabletonError(f"{lock_line(others[path])}. Sharing your copy would overwrite their work.")
         if path not in mine:
-            raise RiffError(f"you changed {path} without taking it first. Run `riff take` "
+            raise CollabletonError(f"you changed {path} without taking it first. Run `collableton take` "
                             "(your changes are kept), then give again.")
     git("-C", root, "add", "-A")
     if git("-C", root, "diff", "--cached", "--quiet", check=False).returncode != 0:
@@ -429,11 +429,11 @@ def cmd_give(args):
         print("Nothing new to share; just handing the set back.")
     try:
         git("-C", root, "push", "-q", "-u", "origin", "HEAD")
-    except RiffError as e:
-        raise RiffError(f"couldn't upload to GitHub. You still have the set.\n{e}")
+    except CollabletonError as e:
+        raise CollabletonError(f"couldn't upload to GitHub. You still have the set.\n{e}")
     for lock in ours:
         run("git", "-C", root, "lfs", "unlock", "--id", str(lock["id"]))
-    print("Shared and handed back. Your collaborator can now riff take.")
+    print("Shared and handed back. Your collaborator can now collableton take.")
     return 0
 
 
@@ -454,7 +454,7 @@ def cmd_status(args):
         if git("-C", root, "rev-parse", "-q", "--verify", remote, check=False).returncode == 0:
             ahead, behind = git("-C", root, "rev-list", "--left-right", "--count", f"HEAD...{remote}").split()
             if behind != "0":
-                print(f"GitHub has {behind} newer version(s). riff take will get them.")
+                print(f"GitHub has {behind} newer version(s). collableton take will get them.")
             if ahead != "0":
                 print(f"{ahead} version(s) here aren't on GitHub yet.")
     dirty = git("-C", root, "status", "--porcelain").splitlines()
@@ -476,12 +476,12 @@ def cmd_check(args):
     root = repo_root_or_cwd()
     paths = args.files or [os.path.join(root, p) for p in project_sets(root)]
     if not paths:
-        raise RiffError("no .als files here.")
+        raise CollabletonError("no .als files here.")
     errors = 0
     for path in paths:
         try:
             summary = load_set(path)
-        except (RiffError, OSError) as e:
+        except (CollabletonError, OSError) as e:
             report(path, [("ERROR", str(e))])
             errors += 1
             continue
@@ -506,7 +506,7 @@ def cmd_diff(args):
             print("  " + line)
         return 0
     if len(files) > 1 or len(revs) > 2:
-        raise RiffError("usage: riff diff [rev1] [rev2] [file.als]   or   riff diff a.als b.als")
+        raise CollabletonError("usage: collableton diff [rev1] [rev2] [file.als]   or   collableton diff a.als b.als")
     root = repo_root()
     old, new = (revs + [None, None])[:2]
     old = old or "HEAD"
@@ -537,7 +537,7 @@ def _set_at(root, rev, path):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="riff", description=__doc__,
+    ap = argparse.ArgumentParser(prog="collableton", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="command")
     sub.add_parser("init", help="set up this Live project folder for sharing").set_defaults(fn=cmd_init)
@@ -556,9 +556,9 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         return args.fn(args)
-    except RiffError as e:
+    except CollabletonError as e:
         sys.stdout.flush()
-        print(f"riff: {e}", file=sys.stderr)
+        print(f"collableton: {e}", file=sys.stderr)
         return 1
 
 

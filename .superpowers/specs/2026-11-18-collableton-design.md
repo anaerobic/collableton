@@ -1,8 +1,8 @@
-# riff: git-based collaboration CLI for Ableton Live projects
+# collableton: git-based collaboration CLI for Ableton Live projects
 
 ## Problem
 Two musicians share Ableton Live 12 projects (macOS). Live has no merge or locking: if both
-save the same `.als`, the last save silently wins. `riff` wraps git + Git LFS file locking so
+save the same `.als`, the last save silently wins. `collableton` wraps git + Git LFS file locking so
 overwrites can't happen, and preflights a set for common sharing mistakes before it's pushed.
 Both run Live 12.4; one runs Live 12 Intro. Both own EZdrummer 3 (VST3).
 
@@ -14,12 +14,12 @@ Both run Live 12.4; one runs Live 12 Intro. Both own EZdrummer 3 (VST3).
 - Rendered stems are not stored in git; keep them in a `stems/` folder outside the repo.
 
 ## Layout
-- `riff.py`: the CLI (installed onto PATH as `riff`). Pure parsing/check/diff functions,
+- `collableton.py`: the CLI (installed onto PATH as `collableton`). Pure parsing/check/diff functions,
   separate from the git subprocess layer.
-- `test_riff.py`: `unittest`, synthetic gzipped `.als` fixtures built in code.
+- `test_collableton.py`: `unittest`, synthetic gzipped `.als` fixtures built in code.
 - `README.md`: install, the take → work → give loop, what each check means.
 
-## `riff.toml`
+## `collableton.toml`
 A flat TOML subset: top-level `key = value`, values are strings, ints, or string arrays.
 ```toml
 min_live_version = "12.4"   # oldest Live version either collaborator runs
@@ -41,21 +41,21 @@ gzip-compressed XML, root `<Ableton Creator="Ableton Live 12.4.16">`.
 - Tempo: main track's `Tempo/Manual@Value`.
 
 ## Commands
-- `riff init`: git init (if needed), `git lfs install`, write `.gitattributes`
-  (`*.als` lockable/binary-merge/`diff=als`, audio → LFS), `.gitignore`, `riff.toml`;
+- `collableton init`: git init (if needed), `git lfs install`, write `.gitattributes`
+  (`*.als` lockable/binary-merge/`diff=als`, audio → LFS), `.gitignore`, `collableton.toml`;
   configure the `als` diff textconv (LFS smudge then `gzip -dc`). Idempotent; never
   overwrites existing files. Run again after cloning.
-- `riff take`: `git pull --ff-only`, then lock every `.als`. Refuse, naming owner and time,
+- `collableton take`: `git pull --ff-only`, then lock every `.als`. Refuse, naming owner and time,
   if anyone else holds a lock.
-- `riff give -m MSG [--force]`: run `check` (stop on errors unless `--force`), require that
+- `collableton give -m MSG [--force]`: run `check` (stop on errors unless `--force`), require that
   you hold the locks, commit everything, push, unlock.
-- `riff check [file.als ...]`: errors exit non-zero.
+- `collableton check [file.als ...]`: errors exit non-zero.
   - ERROR: sample ref outside the project folder and not Core Library.
   - ERROR: plugin not in the allowlist, or in a format other than `plugin_format`.
   - WARN: MIDI track with a plugin and zero notes across its clips.
   - WARN: set saved by a Live newer than `min_live_version`.
   - WARN: more than 16 audio + MIDI tracks (Live Intro limit).
-- `riff diff [A] [B]`: semantic summary (tracks added/removed/renamed, plugins
+- `collableton diff [A] [B]`: semantic summary (tracks added/removed/renamed, plugins
   added/removed, per-track clip and note counts, tempo, Live version). `A`/`B` are each a
   file path or git revision; defaults are `HEAD` and the working copy.
-- `riff status`: lock holders, ahead/behind remote, last few commits.
+- `collableton status`: lock holders, ahead/behind remote, last few commits.

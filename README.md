@@ -1,20 +1,20 @@
-# riff
+# collableton
 
 Share Ableton Live projects over GitHub without overwriting each other's work.
 
 Live can't merge two versions of a set: if you both save `Song.als`, the last save wins and
-the other person's work is gone. riff stops that from happening. Only one of you can have a
-set at a time ("take" it), and riff checks the set for common sharing mistakes before you
+the other person's work is gone. collableton stops that from happening. Only one of you can have a
+set at a time ("take" it), and collableton checks the set for common sharing mistakes before you
 hand it back ("give").
 
 ## Install (once per Mac)
 
 ```sh
 brew install git-lfs
-sudo install -m 755 riff.py /usr/local/bin/riff
+sudo install -m 755 collableton.py /usr/local/bin/collableton
 ```
 
-riff uses the `python3` that comes with Xcode Command Line Tools (`xcode-select --install`).
+collableton uses the `python3` that comes with Xcode Command Line Tools (`xcode-select --install`).
 
 ## Start sharing a project
 
@@ -22,44 +22,44 @@ One of you, inside the Live project folder (the one with the `.als` file and
 `Ableton Project Info`):
 
 ```sh
-riff init
+collableton init
 git remote add origin https://github.com/YOU/SONG.git   # an empty GitHub repo
-riff take
-riff give -m "First version"
+collableton take
+collableton give -m "First version"
 ```
 
 The other person:
 
 ```sh
 git clone https://github.com/YOU/SONG.git
-cd SONG && riff init
+cd SONG && collableton init
 ```
 
 ## Every session
 
 ```sh
-riff take                       # get the latest version and lock it
+collableton take                       # get the latest version and lock it
 # ...open the set in Live, make music, save...
-riff give -m "added a bassline" # check it, share it, unlock it
+collableton give -m "added a bassline" # check it, share it, unlock it
 ```
 
 Close the set in Live before you `give`.
 
-Your sets stay read-only until you `riff take` them. If Live won't save, you probably
+Your sets stay read-only until you `collableton take` them. If Live won't save, you probably
 haven't taken the set.
 
 ## Other commands
 
-- `riff status`: who has the set, whether GitHub has something newer, and the last few
+- `collableton status`: who has the set, whether GitHub has something newer, and the last few
   versions.
-- `riff diff`: what changed in your set since your last give. `riff diff HEAD~1 HEAD`
-  compares the last two shared versions, and `riff diff a.als b.als` compares two files.
+- `collableton diff`: what changed in your set since your last give. `collableton diff HEAD~1 HEAD`
+  compares the last two shared versions, and `collableton diff a.als b.als` compares two files.
   You get a short summary (tracks, plugins, clips, notes, tempo, Live version), not XML.
-- `riff check`: runs the checks below without sharing anything.
+- `collableton check`: runs the checks below without sharing anything.
 
-## What `riff check` looks for
+## What `collableton check` looks for
 
-`give` runs these checks first. An **ERROR** stops the give. `riff give --force` shares the
+`give` runs these checks first. An **ERROR** stops the give. `collableton give --force` shares the
 set anyway, but your collaborator may hear something different. A **WARN** is printed and
 doesn't stop anything.
 
@@ -67,7 +67,7 @@ doesn't stop anything.
   uses an audio file the other person doesn't have. In Live, choose *File > Collect All and
   Save*, then give again. Samples from Live's built-in Core Library are fine.
 - **ERROR: plugin isn't on the shared list.** The other person may not own it. Use a
-  plugin you both have, or add it to `riff.toml` once you've both installed it.
+  plugin you both have, or add it to `collableton.toml` once you've both installed it.
 - **ERROR: plugin is loaded as AU/VST2, but you agreed on VST3.** The same plugin in another
   format can show up as missing on the other Mac. Swap in the agreed format.
 - **WARN: plugin but no MIDI notes in Live.** For example, an EZdrummer track whose groove
@@ -77,9 +77,9 @@ doesn't stop anything.
   `min_live_version`, so the other person may not be able to open it.
 - **WARN: more than 16 audio/MIDI tracks.** Live Intro can't have more than 16.
 
-## `riff.toml`
+## `collableton.toml`
 
-`riff init` creates this file. Keep it the same for both of you, since it gets shared like
+`collableton init` creates this file. Keep it the same for both of you, since it gets shared like
 everything else.
 
 ```toml
@@ -90,7 +90,7 @@ plugins = [
 ]
 ```
 
-## What riff doesn't do
+## What collableton doesn't do
 
 - **Merge sets.** If you both changed a set, open one of them and drag the tracks in from
   the other using Live's browser.
@@ -102,7 +102,7 @@ plugins = [
 ## Development
 
 ```sh
-python3 -m unittest -v test_riff
+python3 -m unittest -v test_collableton
 ```
 
 The tests build small fake sets in code and need `git-lfs` for the git tests. File locking
