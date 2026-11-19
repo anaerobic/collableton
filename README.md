@@ -75,8 +75,9 @@ collableton give -m "added a bassline"  # check it, share it, unlock it
 - `take` and `give` act on the folder you're in. Inside a song's folder they lock and share
   just that song, so the two of you can work on different songs at once. At the top of the
   music repo they cover every song.
-- Your sets stay read-only until you take them. If Live won't save, you probably haven't
-  taken the set.
+- Take a song before you open it in Live. Sets are read-only until you take them, so if Live
+  refuses to save, that's why. Don't count on that to stop Live, though; what protects your
+  collaborator's work is `give` refusing to share a set you never took.
 - `take` refuses if the other person has the song, and tells you who has it and since when.
 - `give` refuses to share a set you changed without taking it, so nobody's work gets
   overwritten.

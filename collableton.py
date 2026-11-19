@@ -192,13 +192,18 @@ def sample_problem(path, rel, project_dir, exists=os.path.exists):
     """None if the collaborator will find this sample, else a short reason."""
     if CORE_LIBRARY.match(path):
         return None
-    project = os.path.join(os.path.abspath(project_dir), "")
-    if path and os.path.abspath(path).startswith(project):
-        return None if exists(path) else "is missing from the project folder, or git won't share it"
+    # Real paths, so a link inside the project that points elsewhere counts as outside:
+    # git would share the link, not the audio.
+    project = os.path.join(os.path.realpath(project_dir), "")
+    missing = "is missing from the project folder, or git won't share it"
+    if path and os.path.realpath(path).startswith(project):
+        return None if exists(path) else missing
     rel = os.path.normpath(rel) if rel else ""
     if rel and not rel.startswith(("/", "..")):
         # Same project folder on the other person's Mac: the absolute path differs, the relative one doesn't.
-        return None if exists(os.path.join(project_dir, rel)) else "is missing from the project folder, or git won't share it"
+        here = os.path.join(project_dir, rel)
+        if os.path.realpath(here).startswith(project):
+            return None if exists(here) else missing
     return "is outside the project folder"
 
 
@@ -365,6 +370,15 @@ def sync(root):
     remote = f"origin/{branch(root)}"
     if git("-C", root, "rev-parse", "-q", "--verify", remote, check=False).returncode != 0:
         return  # nothing shared yet
+    # Unsaved-to-git edits to a file that also changed on GitHub can't be replayed cleanly
+    # (git would park them in its stash and leave the set half-merged), so stop before touching anything.
+    dirty = {e[3:] for e in git("-C", root, "status", "--porcelain", "-z").split("\0") if e}
+    incoming = set(git("-C", root, "diff", "--name-only", "-z", f"HEAD...{remote}").split("\0")) - {""}
+    clash = sorted(dirty & incoming)
+    if clash:
+        raise CollabletonError("you changed these here, and a newer version of them is on GitHub:\n  "
+                               + "\n  ".join(clash) + "\nNothing was changed. Keep your version with "
+                               "File > Save Live Set As under a new name, then ask for help.")
     p = git("-C", root, "rebase", "-q", "--autostash", remote, check=False)
     if p.returncode != 0:
         git("-C", root, "rebase", "--abort", check=False)
@@ -404,9 +418,12 @@ def cmd_init(args):
 def set_up(root, name):
     """Does an existing .gitattributes / .gitignore already do what collableton needs?"""
     if name == ".gitattributes":
-        attrs = git("-C", root, "check-attr", "filter", "lockable", "--", "probe.als")
-        return "filter: lfs" in attrs and "lockable: set" in attrs
-    return git("-C", root, "check-ignore", "-q", "--no-index", "Backup/probe.als", check=False).returncode == 0
+        attrs = git("-C", root, "check-attr", "filter", "lockable", "merge", "diff", "--", "probe.als", "probe.wav")
+        return all(want in attrs for want in ("probe.als: filter: lfs", "probe.als: lockable: set",
+                                              "probe.als: merge: binary", "probe.als: diff: als",
+                                              "probe.wav: filter: lfs"))
+    return all(git("-C", root, "check-ignore", "-q", "--no-index", probe, check=False).returncode == 0
+               for probe in ("Backup/probe.als", "stems/probe.wav", "probe.asd"))
 
 
 def shared_file(root):

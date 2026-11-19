@@ -59,6 +59,10 @@ def findings(*tracks, cfg=CFG, project="/proj", exists=lambda p: True, **kw):
     return collableton.check_set(summary(*tracks, **kw), cfg, project, exists)
 
 
+def riff_problem(path, rel, project):
+    return collableton.sample_problem(path, rel, project, os.path.exists)
+
+
 def levels(*tracks, **kw):
     return [level for level, _ in findings(*tracks, **kw)]
 
@@ -134,6 +138,15 @@ class CheckTest(unittest.TestCase):
     def test_project_sample_not_on_disk_is_error(self):
         f = findings(track("AudioTrack", 1, "a", sample("/proj/Samples/a.wav")), exists=lambda p: False)
         self.assertIn("missing", f[0][1])
+
+    def test_sample_linked_from_outside_the_project_is_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            proj, outside = os.path.join(d, "proj"), os.path.join(d, "kick.wav")
+            os.mkdir(proj)
+            open(outside, "wb").close()
+            os.symlink(outside, os.path.join(proj, "kick.wav"))
+            self.assertEqual(riff_problem(os.path.join(proj, "kick.wav"), "", proj), "is outside the project folder")
+            self.assertEqual(riff_problem("/elsewhere/kick.wav", "kick.wav", proj), "is outside the project folder")
 
     def test_device_preset_refs_ignored(self):
         self.assertEqual(levels(track("MidiTrack", 1, "x", PRESET_REF + midi_clip(1))), [])
@@ -459,6 +472,38 @@ class GitFlowTest(CliTest):
         self.assertIn("lockable: set", sh("git", "check-attr", "lockable", "--", "Song.als"))
         self.assertEqual(subprocess.run(["git", "check-ignore", "-q", "Backup/x.als"]).returncode, 0)
         self.assertEqual(self.cli("init")[1].count("Kept your existing"), 3)
+
+    def test_take_stops_untouched_when_your_edit_clashes_with_github(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        self.write("Song.als", als(EZ))
+        self.commit("v1")
+        sh("git", "push", "-q", "-u", "origin", "HEAD")
+        me = os.getcwd()
+        sh("git", "clone", "-q", self.remote, "../other")
+        os.chdir("../other")
+        self.cli("init")
+        self.write("Song.als", als(EZ, tempo="90"))
+        self.commit("theirs")
+        sh("git", "push", "-q")
+        os.chdir(me)
+        mine = als(EZ, tempo="140")
+        self.write("Song.als", mine)  # edited without taking it
+        with self.fake_locks():
+            code, out = self.cli("take")
+        self.assertEqual(code, 1)
+        self.assertIn("newer version of them is on GitHub", out)
+        with open("Song.als", "rb") as f:
+            self.assertEqual(f.read(), mine)
+        self.assertEqual(sh("git", "stash", "list"), "")
+        self.assertEqual(sh("git", "log", "--format=%s"), "v1\n")
+
+    def test_init_completes_partial_setup(self):
+        self.write(".gitattributes", b"*.als filter=lfs lockable\n")
+        self.write(".gitignore", b"Backup/\n")
+        code, out = self.cli("init")
+        self.assertEqual(out.count("Added collableton's rules"), 2)
+        self.assertIn("merge: binary", sh("git", "check-attr", "merge", "--", "Song.als"))
+        self.assertEqual(subprocess.run(["git", "check-ignore", "-q", "stems/kick.wav"]).returncode, 0)
 
     def test_give_commits_pushes_and_unlocks(self):
         sh("git", "remote", "add", "origin", self.remote)
