@@ -1,4 +1,4 @@
-.agents/
+.agents/worktrees/
 .superpowers/*
 !.superpowers/specs
 !.superpowers/specs/**

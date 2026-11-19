@@ -144,21 +144,26 @@ plugins = [
   other way.
 - **Share Live's `Backup/` folders.** Live's automatic backups stay on your own Mac.
 
-## Using it with Claude
+## Using it with an AI assistant
 
-`skills/collableton` is a Claude Code skill that teaches Claude to run collableton for you:
-take and give songs, explain what `check` reports and how to fix it in Live, and summarize
-what changed. It also keeps Claude from working around the safety rails: no raw `git push`,
-no breaking the other person's lock, no `give --force` without asking, no editing `.als`
-files directly. To install it (after cloning this repo as above):
+`.agents/skills/collableton` is an agent skill (the shared `SKILL.md` format) that teaches
+Claude Code, Codex or GitHub Copilot to run collableton for you. It covers taking and giving
+songs, explaining what `check` reports and how to fix it in Live, and summarizing what changed.
+It also keeps the assistant from working around the safety rails: no raw `git push`, no
+breaking the other person's lock, no `give --force` without asking, no editing `.als` files
+directly.
+
+Install it for yourself so it works in your music repo. Both of you should do this:
 
 ```sh
-mkdir -p ~/.claude/skills
-ln -sf ~/collableton/skills/collableton ~/.claude/skills/collableton
+mkdir -p ~/.claude/skills ~/.agents/skills
+ln -sf ~/collableton/.agents/skills/collableton ~/.claude/skills/collableton   # Claude Code
+ln -sf ~/collableton/.agents/skills/collableton ~/.agents/skills/collableton   # Codex, Copilot
 ```
 
-Then open Claude Code in your music repo and ask in plain words, like "take Song A for me" or
-"why won't my give go through?".
+Because those are links, `git -C ~/collableton pull` updates the skill too. Then open your
+assistant in the music repo and ask in plain words, like "take Song A for me" or "why won't my
+give go through?".
 
 ## Development
 
