@@ -467,7 +467,7 @@ def cmd_status(args):
 
 
 def report(path, findings):
-    print(f"{path}: " + ("OK" if not findings else ""))
+    print(f"{path}:" + ("" if findings else " OK"))
     for level, msg in findings:
         print(f"  {level}: {msg}")
 
@@ -557,6 +557,7 @@ def main(argv=None):
     try:
         return args.fn(args)
     except RiffError as e:
+        sys.stdout.flush()
         print(f"riff: {e}", file=sys.stderr)
         return 1
 
