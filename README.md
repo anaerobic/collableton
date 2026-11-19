@@ -116,7 +116,12 @@ printed and doesn't stop anything.
   format can show up as missing on the other Mac. Swap in the agreed format.
 - **WARN: plugin but no MIDI notes in Live.** For example, an EZdrummer track whose groove
   lives inside EZdrummer's own song creator. Live can't show or edit those notes. Drag the
-  groove from the plugin into a Live clip.
+  groove from the plugin into a Live clip. The groove is still shared either way: it's saved
+  inside the plugin's settings, which travel with the set.
+- **WARN: a plugin refers to an audio file inside its own settings.** For example, audio you
+  loaded into EZdrummer to build a groove from. Collect All can't copy those files, so your
+  collaborator won't have them. If the plugin needs the file, copy it into the project folder
+  and load it from there inside the plugin.
 - **WARN: saved with a newer Live.** The set was saved by a Live newer than
   `min_live_version`, so the other person may not be able to open it.
 - **WARN: more than 16 audio/MIDI tracks.** Live Intro can't have more than 16.

@@ -65,7 +65,8 @@ anything. Translate each message into what to do in Live:
 | `is missing from the project folder, or git won't share it` | The file is gone, or sits somewhere git ignores (like `stems/`). | Same fix: **Collect All and Save**. If they deleted the file, they need to restore or replace it in Live. |
 | `isn't on the shared list` | A plugin the other person may not own. | Swap it for a plugin you both own. Or, if both own it, add it to `collableton.toml` (confirm that first). |
 | `is loaded as AU` / `VST2` | The agreed plugin, but in the wrong format; on the other Mac it may load as missing. | In Live, replace the device with the VST3 version (or whatever `plugin_format` says). |
-| `has no MIDI notes in Live` (WARN) | Usually a drum plugin (e.g. EZdrummer) playing its own internal groove. Live can't show or edit those notes. | Drag the groove from the plugin into a Live MIDI clip. Optional, but the groove then lives in the set. |
+| `has no MIDI notes in Live` (WARN) | Usually a drum plugin (e.g. EZdrummer) playing its own internal groove. Live can't show or edit those notes. | Drag the groove from the plugin into a Live MIDI clip. Optional: the groove is shared either way, inside the plugin's saved settings, but only a Live clip can be seen and edited in Live. |
+| `refers to "…" inside its own settings` (WARN) | A plugin saved a path to an audio file in its own data (e.g. audio loaded into EZdrummer to build a groove). Collect All doesn't see it, so the other person won't have the file. | If the plugin needs it, copy the file into the project folder and load it from there inside the plugin. If the plugin only used it once (e.g. to analyze it), it can be ignored. |
 | `newer than … in collableton.toml` (WARN) | Saved with a newer Live than the other person runs. | They should check their Live versions match. Once both have updated, raise `min_live_version`. |
 | `Live Intro only allows 16` (WARN) | Too many tracks for someone on Live Intro. | Get down to 16 audio/MIDI tracks before handing over (freeze and flatten, or bounce tracks together). |
 
@@ -94,6 +95,9 @@ they've done it. Fix only what the message names; don't reorganize their project
 - **The file is read-only**: the set isn't taken. Run `collableton take`. Live itself saves over
   read-only sets anyway, so if they've already edited and saved, `take` keeps their changes
   as long as nobody else has the song.
+- **A plugin's window doesn't open when they click its track**: that's normal. Live opens a plugin
+  window automatically only when the plugin is added. To open it later, select the track and click
+  the wrench icon on the plugin's title bar in the Device View.
 - **`Git LFS placeholder`**: the real set wasn't downloaded. Run `git lfs pull`.
 - **`isn't connected to GitHub yet`** or **`isn't shared with collableton yet`**: setup isn't
   finished; see below.

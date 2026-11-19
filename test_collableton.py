@@ -1,3 +1,4 @@
+import binascii
 import contextlib
 import gzip
 import io
@@ -147,6 +148,18 @@ class CheckTest(unittest.TestCase):
             os.symlink(outside, os.path.join(proj, "kick.wav"))
             self.assertEqual(riff_problem(os.path.join(proj, "kick.wav"), "", proj), "is outside the project folder")
             self.assertEqual(riff_problem("/elsewhere/kick.wav", "kick.wav", proj), "is outside the project folder")
+
+    def test_audio_path_saved_inside_a_plugin_warns(self):
+        def ez(payload):
+            hexed = binascii.hexlify(payload).decode()
+            state = "\n\t" + "\n\t".join(hexed[i:i + 64] for i in range(0, len(hexed), 64))  # as Live writes it
+            return track("MidiTrack", 1, "Drums", plugin("EZdrummer 3", state=state) + midi_clip(8))
+        f = findings(ez(b'Tempo 60 InputAudio "/Users/pat/Desktop/doodle.aif" { Events 1 2 3'))
+        self.assertEqual([l for l, _ in f], ["WARN"])
+        self.assertIn('"/Users/pat/Desktop/doodle.aif" inside its own settings', f[0][1])
+        library = b'Library "/Library/Application Support/Toontrack/EZdrummer/Kit.wav" Drums "/Volumes/SSD/Toontrack/'
+        self.assertEqual(levels(ez(library)), [])
+        self.assertEqual(levels(ez(b'InputAudio "/proj/Samples/doodle.aif"')), [])  # inside the project
 
     def test_device_preset_refs_ignored(self):
         self.assertEqual(levels(track("MidiTrack", 1, "x", PRESET_REF + midi_clip(1))), [])

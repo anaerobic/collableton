@@ -4,6 +4,7 @@
 take -> work in Live -> give.  `collableton --help` for commands.
 """
 import argparse
+import binascii
 import gzip
 import hashlib
 import json
@@ -139,8 +140,22 @@ def read_als(data):
     return root
 
 
+# ponytail: only audio under /Users or /Volumes; plugins also store paths to their own installed
+# libraries, which both people have, and those must not warn.
+PLUGIN_AUDIO_PATH = re.compile(rb"/(?:Users|Volumes)/[^\"\x00\r\n<>|]*?\.(?:wav|aiff?|mp3|flac|ogg|m4a)(?=[\"\x00\r\n]|$)", re.I)
+
+
+def audio_paths_in(state_hex):
+    """Audio file paths a plugin saved inside its own (hex-encoded) state, e.g. EZdrummer's audio input."""
+    try:
+        raw = binascii.unhexlify(re.sub(r"\s", "", state_hex))
+    except (binascii.Error, ValueError):
+        return []
+    return sorted({m.group().decode("utf-8", "replace") for m in PLUGIN_AUDIO_PATH.finditer(raw)})
+
+
 def _track(el):
-    plugins, states = [], []
+    plugins, states, plugin_files = [], [], []
     for dev in el.iter():
         if dev.tag in PLUGIN_DEVICES:
             info = next((e for e in dev.iter() if e.tag in PLUGIN_FORMATS), None)
@@ -150,6 +165,7 @@ def _track(el):
                 # The plugin's own saved settings (e.g. an EZdrummer groove): opaque, but we can tell if they changed.
                 blob = "".join(t.strip() for ps in dev.iter("ProcessorState") for t in ps.itertext())
                 states.append((name, hashlib.sha1(blob.encode()).hexdigest()))
+                plugin_files += [(name, f) for f in audio_paths_in(blob)]
     midi_clips = list(el.iter("MidiClip"))
     samples = set()
     for ref in el.iter("SampleRef"):
@@ -162,6 +178,7 @@ def _track(el):
         "name": _value(el, "Name/EffectiveName") or _value(el, "Name/UserName") or el.tag,
         "plugins": plugins,
         "plugin_states": states,
+        "plugin_files": sorted(set(plugin_files)),
         "clips": len(midi_clips) + sum(1 for _ in el.iter("AudioClip")),
         "notes": sum(1 for c in midi_clips for _ in c.iter("MidiNoteEvent")),
         "samples": sorted(samples),
@@ -231,6 +248,12 @@ def check_set(summary, cfg, project_dir, exists=os.path.exists):
             elif pfmt != fmt:
                 out.append(("ERROR", f'Track "{t["name"]}": "{name}" is loaded as {pfmt}, but you agreed '
                                      f'on {fmt}. Replace it with the {fmt} version.'))
+        for name, path in t.get("plugin_files", []):
+            if sample_problem(path, "", project_dir, exists):
+                out.append(("WARN", f'Track "{t["name"]}": {name} refers to "{path}" inside its own settings. '
+                                    "Collect All can't copy that, so your collaborator won't have it. If the "
+                                    "plugin needs the file, copy it into the project folder and load it from there "
+                                    "inside the plugin."))
         if t["kind"] == "MIDI" and t["plugins"] and t["notes"] == 0:
             out.append(("WARN", f'Track "{t["name"]}" plays {t["plugins"][0][0]} but has no MIDI notes '
                                 'in Live. The groove may live inside the plugin, where Live can\'t '
