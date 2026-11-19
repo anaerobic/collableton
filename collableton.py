@@ -408,6 +408,7 @@ def cmd_init(args):
         else:
             print(f"Kept your existing {name}")
     git("-C", root, "config", "diff.als.textconv", TEXTCONV)
+    restore_project_info(root)
     print("Ready. Next: collableton take, work in Live, then collableton give -m \"what you did\"")
     if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
         print("First connect this folder to an empty GitHub repo:\n"
@@ -433,10 +434,23 @@ def shared_file(root):
     return check
 
 
+def restore_project_info(root):
+    """Live only treats a folder as a Project if it has an "Ableton Project Info" folder, which is
+    often empty, and git doesn't keep empty folders. Recreate it in fresh clones."""
+    for s in project_sets(root):
+        d = os.path.dirname(os.path.join(root, s))
+        ancestors = [d]
+        while os.path.relpath(ancestors[-1], root) not in (".", ""):
+            ancestors.append(os.path.dirname(ancestors[-1]))
+        if not any(os.path.isdir(os.path.join(a, "Ableton Project Info")) for a in ancestors):
+            os.mkdir(os.path.join(d, "Ableton Project Info"))
+
+
 def cmd_take(args):
     root = repo_root()
     require_origin(root)
     sync(root)
+    restore_project_info(root)
     sets = project_sets(root, here(root))
     if not sets:
         raise CollabletonError("no .als files in this folder yet. Save your set into it first.")

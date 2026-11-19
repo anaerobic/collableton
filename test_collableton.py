@@ -505,6 +505,23 @@ class GitFlowTest(CliTest):
         self.assertIn("merge: binary", sh("git", "check-attr", "merge", "--", "Song.als"))
         self.assertEqual(subprocess.run(["git", "check-ignore", "-q", "stems/kick.wav"]).returncode, 0)
 
+    def test_clone_gets_back_its_empty_project_info_folder(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        os.makedirs("Song Project/Ableton Project Info")  # empty, as Live 12 leaves it
+        self.write("Song Project/Song.als", als(EZ))
+        self.commit("v1")
+        sh("git", "push", "-q", "-u", "origin", "HEAD")
+        sh("git", "clone", "-q", self.remote, "../other")
+        os.chdir("../other")
+        self.assertFalse(os.path.isdir("Song Project/Ableton Project Info"))  # git dropped it
+        self.cli("init")
+        self.assertTrue(os.path.isdir("Song Project/Ableton Project Info"))
+        os.rmdir("Song Project/Ableton Project Info")
+        with self.fake_locks(), self.no_lock_calls():
+            os.chdir("Song Project")
+            self.assertEqual(self.cli("take")[0], 0)
+        self.assertTrue(os.path.isdir("Ableton Project Info"))
+
     def test_give_commits_pushes_and_unlocks(self):
         sh("git", "remote", "add", "origin", self.remote)
         self.write("Song.als", als(EZ))

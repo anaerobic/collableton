@@ -27,8 +27,8 @@ collableton give -m "what changed"    # check, commit, push, unlock
 
 - Run `collableton status` first when you're not sure of the state.
 - Have them `take` a song before opening it in Live, not after. Sets are read-only until taken,
-  but don't rely on that to stop Live from saving; `give` is what catches an edit to a set
-  they never took.
+  but Live saves over read-only sets without a warning, so read-only stops nothing; `give` is
+  what catches an edit to a set they never took.
 - Remind them to save and close the set in Live before `give`. A set that's still open can get
   saved again after it's shared.
 - For the give message, describe what changed in the music ("added a Serum bassline, tempo
@@ -87,8 +87,13 @@ they've done it. Fix only what the message names; don't reorganize their project
   anything else.
 - **`couldn't upload to GitHub`**: usually a network or GitHub sign-in problem. They still have
   the lock. Retry once; if it fails again, show the message.
-- **Live won't save / the file is read-only**: the set isn't taken. Run `collableton take`, then
-  save again in Live.
+- **Live says the set is "outside of a Project folder"** and wants Save As: the song's
+  `Ableton Project Info` folder is missing. It's often empty, and git doesn't keep empty
+  folders, so fresh clones lose it. Run `collableton take` (or `collableton init`), which puts
+  it back, then save again. Don't let them Save As somewhere else: that splits the song.
+- **The file is read-only**: the set isn't taken. Run `collableton take`. Live itself saves over
+  read-only sets anyway, so if they've already edited and saved, `take` keeps their changes
+  as long as nobody else has the song.
 - **`Git LFS placeholder`**: the real set wasn't downloaded. Run `git lfs pull`.
 - **`isn't connected to GitHub yet`** or **`isn't shared with collableton yet`**: setup isn't
   finished; see below.
