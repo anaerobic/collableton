@@ -433,7 +433,9 @@ def sync(root):
         raise CollabletonError("you changed these here, and a newer version of them is on GitHub:\n  "
                                + "\n  ".join(clash) + "\nNothing was changed. Keep your version with "
                                "File > Save Live Set As under a new name, then ask for help.")
-    p = git("-C", root, "rebase", "-q", "--autostash", remote, check=False)
+    # Mid-rebase, git-lfs's post-checkout hook flips lockable sets read-only, which changes their
+    # ctime; with ctime trusted, git then takes an untouched set for a local edit and stops.
+    p = git("-C", root, "-c", "core.trustctime=false", "rebase", "-q", "--autostash", remote, check=False)
     if p.returncode != 0:
         git("-C", root, "rebase", "--abort", check=False)
         msg = (p.stderr or p.stdout).decode(errors="replace").strip()
