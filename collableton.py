@@ -58,6 +58,29 @@ Icon\r\r
 *.icloud
 *(conflicted copy)*
 """
+# Read by every coding agent working in the music repo (Claude Code, Codex, Copilot), whether
+# or not the collableton skill is installed or gets picked up.
+MUSIC_AGENTS = """\
+# collableton music repo
+
+Two people share these Ableton Live songs. Live can't merge two edits of the same set, so the
+`collableton` command keeps one person per song. If you are an AI assistant working here:
+
+- Share and lock songs only with collableton, run from inside the song's folder:
+  `collableton take` before anyone edits, `collableton give -m "what changed"` to share and
+  unlock, `collableton status` to see who has what. Don't `git commit` or `git push` sets
+  yourself, even when asked to hurry: raw git skips the lock and the checks, and that is how
+  someone's work gets overwritten. `give` takes the same few seconds.
+- Never break or remove the other person's lock (`git lfs unlock --force`). Tell them who has
+  the song and suggest asking that person to `collableton give`.
+- Don't run `collableton give --force` unless the person chooses it after you've explained the
+  check error.
+- Never edit `.als` files directly; fixes happen in Live.
+- Before adding a plugin to `collableton.toml`, confirm both people own it.
+
+The collableton skill has the details: https://github.com/anaerobic/collableton
+"""
+
 # git may hand us an LFS pointer instead of the set: smudge it back (real content passes
 # through, with a warning we silence), then unzip the XML.
 TEXTCONV = 'f() { git lfs smudge < "$1" 2>/dev/null | gzip -dc; }; f'
@@ -426,7 +449,8 @@ def cmd_init(args):
         print("Started a git repository here.")
     root = repo_root()
     run("git", "-C", root, "lfs", "install")
-    for name, content in ((".gitattributes", GITATTRIBUTES), (".gitignore", GITIGNORE), (CONFIG_FILE, SEED_CONFIG)):
+    for name, content in ((".gitattributes", GITATTRIBUTES), (".gitignore", GITIGNORE), (CONFIG_FILE, SEED_CONFIG),
+                          ("AGENTS.md", MUSIC_AGENTS), ("CLAUDE.md", "@AGENTS.md\n")):
         path = os.path.join(root, name)
         if not os.path.exists(path):
             with open(path, "w", encoding="utf-8") as f:
@@ -448,7 +472,10 @@ def cmd_init(args):
 
 
 def set_up(root, name):
-    """Does an existing .gitattributes / .gitignore already do what collableton needs?"""
+    """Does an existing setup file already do what collableton needs?"""
+    if name in ("AGENTS.md", "CLAUDE.md"):
+        with open(os.path.join(root, name), encoding="utf-8") as f:
+            return ("collableton" if name == "AGENTS.md" else "@AGENTS.md") in f.read()
     if name == ".gitattributes":
         attrs = git("-C", root, "check-attr", "filter", "lockable", "merge", "diff", "--", "probe.als", "probe.wav")
         return all(want in attrs for want in ("probe.als: filter: lfs", "probe.als: lockable: set",
@@ -521,7 +548,7 @@ def cmd_give(args):
             raise CollabletonError(f"you changed {path} without taking it first. Run `collableton take` "
                             "(your changes are kept), then give again.")
     # The shared setup files live at the top, outside any song folder, but always travel along.
-    paths = [scope] + [f for f in (".gitattributes", ".gitignore", CONFIG_FILE)
+    paths = [scope] + [f for f in (".gitattributes", ".gitignore", CONFIG_FILE, "AGENTS.md", "CLAUDE.md")
                        if scope != "." and os.path.exists(os.path.join(root, f))]
     git("-C", root, "add", "-A", "--", *paths)
     if git("-C", root, "diff", "--cached", "--quiet", "--", *paths, check=False).returncode != 0:

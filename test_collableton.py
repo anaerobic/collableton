@@ -335,7 +335,7 @@ class GitFlowTest(CliTest):
         self.assertTrue(os.path.isfile(".gitignore") and os.path.isfile("collableton.toml"))
         self.write("collableton.toml", b'plugins = ["Serum"]\n')
         code, out = self.cli("init")
-        self.assertEqual(out.count("Kept your existing"), 3)
+        self.assertEqual(out.count("Kept your existing"), 5)
         with open("collableton.toml") as f:
             self.assertIn("Serum", f.read())
 
@@ -482,6 +482,21 @@ class GitFlowTest(CliTest):
         self.assertEqual(code, 1)
         self.assertIn("git won't share it", out)
 
+    def test_init_writes_agent_rules_for_the_music_repo(self):
+        with open("AGENTS.md") as f:
+            self.assertIn("Don't `git commit` or `git push` sets", f.read())
+        with open("CLAUDE.md") as f:
+            self.assertEqual(f.read(), "@AGENTS.md\n")
+        self.write("AGENTS.md", b"# Our band rules\nBe nice.\n")
+        self.write("CLAUDE.md", b"Use British spelling.\n")
+        out = self.cli("init")[1]
+        self.assertIn("Added collableton's rules to your AGENTS.md", out)
+        with open("AGENTS.md") as f:
+            text = f.read()
+        self.assertTrue(text.startswith("# Our band rules") and "collableton take" in text)
+        with open("CLAUDE.md") as f:
+            self.assertIn("@AGENTS.md", f.read())
+
     def test_init_adds_missing_rules_to_existing_files(self):
         self.write(".gitattributes", b"*.wav filter=lfs diff=lfs merge=lfs -text\n")
         self.write(".gitignore", b"*.tmp\n")
@@ -489,7 +504,7 @@ class GitFlowTest(CliTest):
         self.assertEqual(out.count("Added collableton's rules"), 2)
         self.assertIn("lockable: set", sh("git", "check-attr", "lockable", "--", "Song.als"))
         self.assertEqual(subprocess.run(["git", "check-ignore", "-q", "Backup/x.als"]).returncode, 0)
-        self.assertEqual(self.cli("init")[1].count("Kept your existing"), 3)
+        self.assertEqual(self.cli("init")[1].count("Kept your existing"), 5)
 
     def test_take_stops_untouched_when_your_edit_clashes_with_github(self):
         sh("git", "remote", "add", "origin", self.remote)
