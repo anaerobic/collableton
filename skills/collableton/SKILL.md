@@ -61,7 +61,7 @@ anything. Translate each message into what to do in Live:
 
 | Message contains | What it means | What to tell them |
 |---|---|---|
-| `is outside the project folder` | The set uses an audio file from elsewhere on this Mac (their library, Downloads, another project). The other person doesn't have it. | In Live: **File > Collect All and Save**, then give again. Collect All copies the files into the project. |
+| `is outside the project folder` | The set uses an audio file from elsewhere on this Mac (their library, Downloads, another project). The other person doesn't have it. | In Live: **File > Collect All and Save**, then give again. Live asks which files to copy; besides the defaults, set *Files from Factory Packs* to Yes (the other person may not have that pack, and `check` flags pack samples too). The files land in the project's `Samples/` folder. |
 | `is missing from the project folder, or git won't share it` | The file is gone, or sits somewhere git ignores (like `stems/`). | Same fix: **Collect All and Save**. If they deleted the file, they need to restore or replace it in Live. |
 | `isn't on the shared list` | A plugin the other person may not own. | Swap it for a plugin you both own. Or, if both own it, add it to `collableton.toml` (confirm that first). |
 | `is loaded as AU` / `VST2` | The agreed plugin, but in the wrong format; on the other Mac it may load as missing. | In Live, replace the device with the VST3 version (or whatever `plugin_format` says). |

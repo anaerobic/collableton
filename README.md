@@ -107,7 +107,9 @@ printed and doesn't stop anything.
 
 - **ERROR: sample is outside the project folder / missing from the project folder.** The set
   uses an audio file the other person doesn't have. In Live, choose *File > Collect All and
-  Save*, then give again. Samples from Live's built-in Core Library are fine.
+  Save*, then give again. In the dialog that asks which files to copy, also set *Files from
+  Factory Packs* to Yes: the other person may not have the same packs. Samples from Live's
+  built-in Core Library are fine.
 - **ERROR: plugin isn't on the shared list.** The other person may not own it. Use a
   plugin you both have, or add it to `collableton.toml` once you've both installed it.
 - **ERROR: plugin is loaded as AU/VST2, but you agreed on VST3.** The same plugin in another
