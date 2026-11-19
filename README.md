@@ -138,6 +138,22 @@ plugins = [
   other way.
 - **Share Live's `Backup/` folders.** Live's automatic backups stay on your own Mac.
 
+## Using it with Claude
+
+`skills/collableton` is a Claude Code skill that teaches Claude to run collableton for you:
+take and give songs, explain what `check` reports and how to fix it in Live, and summarize
+what changed. It also keeps Claude from working around the safety rails: no raw `git push`,
+no breaking the other person's lock, no `give --force` without asking, no editing `.als`
+files directly. To install it (after cloning this repo as above):
+
+```sh
+mkdir -p ~/.claude/skills
+ln -sf ~/collableton/skills/collableton ~/.claude/skills/collableton
+```
+
+Then open Claude Code in your music repo and ask in plain words, like "take Song A for me" or
+"why won't my give go through?".
+
 ## Development
 
 ```sh
