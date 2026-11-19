@@ -19,7 +19,17 @@ Both run Live 12.4; one runs Live 12 Intro. Both own EZdrummer 3 (VST3).
 - `test_collableton.py`: `unittest`, synthetic gzipped `.als` fixtures built in code.
 - `README.md`: install, the take → work → give loop, what each check means.
 
+## Repos
+- The tool repo (this one) holds only collableton itself.
+- A separate private **music repo** holds the Live projects: either one project at its root, or
+  one Live project folder per song. Both collaborators have write access.
+- `take`/`give`/`check` act on the sets below the current folder: inside one song's folder
+  that's just that song, so two people can hold different songs at once; at the repo top
+  it's every song.
+
 ## `collableton.toml`
+Lives at the music repo's top; a song folder may carry its own to override it (the nearest
+one above a set wins).
 A flat TOML subset: top-level `key = value`, values are strings, ints, or string arrays.
 ```toml
 min_live_version = "12.4"   # oldest Live version either collaborator runs
@@ -45,10 +55,11 @@ gzip-compressed XML, root `<Ableton Creator="Ableton Live 12.4.16">`.
   (`*.als` lockable/binary-merge/`diff=als`, audio → LFS), `.gitignore`, `collableton.toml`;
   configure the `als` diff textconv (LFS smudge then `gzip -dc`). Idempotent; never
   overwrites existing files. Run again after cloning.
-- `collableton take`: `git pull --ff-only`, then lock every `.als`. Refuse, naming owner and time,
-  if anyone else holds a lock.
-- `collableton give -m MSG [--force]`: run `check` (stop on errors unless `--force`), require that
-  you hold the locks, commit everything, push, unlock.
+- `collableton take`: fast-forward to `origin` (never merge), then lock every `.als` in scope.
+  Refuse, naming owner and time, if anyone else holds one of those locks.
+- `collableton give -m MSG [--force]`: run `check` on the sets in scope (stop on errors unless
+  `--force`), require that you hold the lock on every changed set in scope, commit everything
+  in scope, push, unlock your locks in scope.
 - `collableton check [file.als ...]`: errors exit non-zero.
   - ERROR: sample ref outside the project folder and not Core Library.
   - ERROR: plugin not in the allowlist, or in a format other than `plugin_format`.

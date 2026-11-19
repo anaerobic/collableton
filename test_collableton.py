@@ -375,6 +375,35 @@ class GitFlowTest(CliTest):
         self.assertIn("!!! --force", out)
         self.assertIn("without taking it first", out)  # --force never skips the lock check
 
+    def test_take_and_give_act_on_the_song_folder_you_are_in(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        os.makedirs("Song A Project")
+        os.makedirs("Song B Project")
+        self.write("Song A Project/A.als", als(EZ))
+        self.write("Song B Project/B.als", als(EZ))
+        self.commit("two songs")
+        real_run, calls = collableton.run, []
+
+        def run(*cmd, **kw):
+            if cmd[3:5] in (("lfs", "lock"), ("lfs", "unlock")):
+                return calls.append((cmd[4], cmd[-1])) or ""
+            return real_run(*cmd, **kw)
+
+        os.chdir("Song A Project")
+        with self.fake_locks(), mock.patch.object(collableton, "run", run):
+            self.assertEqual(self.cli("take")[0], 0)
+        self.assertEqual(calls, [("lock", "Song A Project/A.als")])
+
+        self.write("A.als", als(EZ, tempo="99"))
+        self.write("../Song B Project/B.als", als(EZ, tempo="77"))
+        ours = [{"id": "1", "path": "Song A Project/A.als"}, {"id": "2", "path": "Song B Project/B.als"}]
+        with self.fake_locks(ours=ours), mock.patch.object(collableton, "run", run):
+            code, out = self.cli("give", "-m", "A only")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls[1:], [("unlock", "1")])
+        self.assertEqual(sh("git", "show", "--name-only", "--format=", "HEAD").split("\n")[:-1], ["Song A Project/A.als"])
+        self.assertIn("Song B Project/B.als", sh("git", "status", "--porcelain"))
+
     def test_give_commits_pushes_and_unlocks(self):
         sh("git", "remote", "add", "origin", self.remote)
         self.write("Song.als", als(EZ))

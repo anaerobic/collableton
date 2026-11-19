@@ -293,17 +293,28 @@ def git(*args, check=True):
 def repo_root():
     p = git("rev-parse", "--show-toplevel", check=False)
     if p.returncode != 0:
-        raise CollabletonError("this folder isn't shared with collableton yet. Run `collableton init` inside the Live project folder.")
+        raise CollabletonError("this folder isn't shared with collableton yet. Clone your music repo and run `collableton init` inside it.")
     return p.stdout.decode().strip()
 
 
-def project_sets(root):
-    """All .als files in the project, skipping Live's Backup folders."""
+def project_sets(root, under="."):
+    """.als files below root/under (paths relative to root), skipping Live's Backup folders."""
     found = []
-    for d, dirs, files in os.walk(root):
+    for d, dirs, files in os.walk(os.path.join(root, under)):
         dirs[:] = [x for x in dirs if x not in ("Backup", ".git")]
         found += [os.path.relpath(os.path.join(d, f), root) for f in files if f.endswith(".als")]
     return sorted(found)
+
+
+def here(root):
+    """The folder you're in, relative to the repo: take/give act only on sets below it.
+    In the repo's top folder that's every song; inside one song's folder, just that song."""
+    rel = os.path.relpath(os.path.realpath(os.getcwd()), os.path.realpath(root))
+    return "." if rel.startswith("..") else rel
+
+
+def inside(path, folder):
+    return folder == "." or path == folder or path.startswith(folder.rstrip("/") + "/")
 
 
 def changed_sets(porcelain_z):
@@ -339,7 +350,7 @@ def locks(root):
 def require_origin(root):
     if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
         raise CollabletonError("this project isn't connected to GitHub yet. Create an empty repo there, then:\n"
-                        "  git remote add origin https://github.com/YOU/SONG.git")
+                        "  git remote add origin https://github.com/YOU/OUR-MUSIC.git")
 
 
 def branch(root):
@@ -379,7 +390,7 @@ def cmd_init(args):
     print("Ready. Next: collableton take, work in Live, then collableton give -m \"what you did\"")
     if git("-C", root, "remote", "get-url", "origin", check=False).returncode != 0:
         print("First connect this folder to an empty GitHub repo:\n"
-              "  git remote add origin https://github.com/YOU/SONG.git")
+              "  git remote add origin https://github.com/YOU/OUR-MUSIC.git")
     return 0
 
 
@@ -387,9 +398,9 @@ def cmd_take(args):
     root = repo_root()
     require_origin(root)
     sync(root)
-    sets = project_sets(root)
+    sets = project_sets(root, here(root))
     if not sets:
-        raise CollabletonError("no .als files in this project yet. Save your set into this folder first.")
+        raise CollabletonError("no .als files in this folder yet. Save your set into it first.")
     ours, theirs = locks(root)
     blocked = [lock for lock in theirs if lock["path"] in sets]
     if blocked:
@@ -408,23 +419,26 @@ def cmd_take(args):
 def cmd_give(args):
     root = repo_root()
     require_origin(root)
-    if cmd_check(argparse.Namespace(files=[])) != 0:
+    scope = here(root)
+    sets = project_sets(root, scope)
+    if sets and cmd_check(argparse.Namespace(files=[os.path.join(root, s) for s in sets])) != 0:
         if not args.force:
             raise CollabletonError("fix the errors above, then run give again (or `collableton give --force` to share anyway).")
         print("\n!!! --force: sharing a set that FAILED the check. Your collaborator may hear\n"
               "!!! something different or be unable to open it.\n")
     ours, theirs = locks(root)
+    ours = [lock for lock in ours if inside(lock["path"], scope)]
     mine, others = {lock["path"] for lock in ours}, {lock["path"]: lock for lock in theirs}
-    changed = changed_sets(git("-C", root, "status", "--porcelain", "-z", "--untracked-files=all"))
+    changed = changed_sets(git("-C", root, "status", "--porcelain", "-z", "--untracked-files=all", "--", scope))
     for path in changed:
         if path in others:
             raise CollabletonError(f"{lock_line(others[path])}. Sharing your copy would overwrite their work.")
         if path not in mine:
             raise CollabletonError(f"you changed {path} without taking it first. Run `collableton take` "
                             "(your changes are kept), then give again.")
-    git("-C", root, "add", "-A")
-    if git("-C", root, "diff", "--cached", "--quiet", check=False).returncode != 0:
-        git("-C", root, "commit", "-q", "-m", args.message)
+    git("-C", root, "add", "-A", "--", scope)
+    if git("-C", root, "diff", "--cached", "--quiet", "--", scope, check=False).returncode != 0:
+        git("-C", root, "commit", "-q", "-m", args.message, "--", scope)
     else:
         print("Nothing new to share; just handing the set back.")
     try:
@@ -473,8 +487,7 @@ def report(path, findings):
 
 
 def cmd_check(args):
-    root = repo_root_or_cwd()
-    paths = args.files or [os.path.join(root, p) for p in project_sets(root)]
+    paths = args.files or project_sets(".")
     if not paths:
         raise CollabletonError("no .als files here.")
     errors = 0
@@ -491,10 +504,6 @@ def cmd_check(args):
         errors += sum(1 for level, _ in findings if level == "ERROR")
     return 1 if errors else 0
 
-
-def repo_root_or_cwd():
-    p = git("rev-parse", "--show-toplevel", check=False)
-    return p.stdout.decode().strip() if p.returncode == 0 else os.getcwd()
 
 
 def cmd_diff(args):
