@@ -13,10 +13,10 @@ import collableton
 # ---------------------------------------------------------------- tiny synthetic .als builders
 
 
-def plugin(name, info="Vst3PluginInfo", device="PluginDevice"):
+def plugin(name, info="Vst3PluginInfo", device="PluginDevice", state="3q2+7w=="):
     tag = "PlugName" if info == "VstPluginInfo" else "Name"
     return (f'<{device} Id="9"><PluginDesc><{info} Id="0"><{tag} Value="{name}"/></{info}></PluginDesc>'
-            '<ProcessorState>3q2+7w==</ProcessorState></' + device + '>')
+            f'<ProcessorState>{state}</ProcessorState></' + device + '>')
 
 
 def midi_clip(notes):
@@ -212,6 +212,11 @@ class DiffTest(unittest.TestCase):
         after = summary(track("MidiTrack", 1, "Drums", plugin("EZdrummer 3") + plugin("Valhalla") + midi_clip(8)))
         self.assertEqual(self.diff(before, after), ['+ "Drums": added plugin Valhalla (VST3)',
                                                     '- "Drums": removed plugin Old Comp (VST3)'])
+
+    def test_settings_changed_inside_a_plugin(self):
+        after = summary(track("MidiTrack", 1, "Drums", plugin("EZdrummer 3", state="AAAAgroove") + midi_clip(8)))
+        self.assertEqual(self.diff(summary(EZ), after),
+                         ['~ "Drums": EZdrummer 3 settings changed inside the plugin (Live can\'t show what)'])
 
     def test_clip_and_note_counts(self):
         after = summary(track("MidiTrack", 1, "Drums", plugin("EZdrummer 3") + midi_clip(8) + midi_clip(16)))

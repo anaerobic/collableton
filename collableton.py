@@ -5,6 +5,7 @@ take -> work in Live -> give.  `collableton --help` for commands.
 """
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -139,13 +140,16 @@ def read_als(data):
 
 
 def _track(el):
-    plugins = []
+    plugins, states = [], []
     for dev in el.iter():
         if dev.tag in PLUGIN_DEVICES:
             info = next((e for e in dev.iter() if e.tag in PLUGIN_FORMATS), None)
             if info is not None:
                 name = _value(info, "Name") or _value(info, "PlugName") or "(unnamed plugin)"
                 plugins.append((name, PLUGIN_FORMATS[info.tag]))
+                # The plugin's own saved settings (e.g. an EZdrummer groove): opaque, but we can tell if they changed.
+                blob = "".join(t.strip() for ps in dev.iter("ProcessorState") for t in ps.itertext())
+                states.append((name, hashlib.sha1(blob.encode()).hexdigest()))
     midi_clips = list(el.iter("MidiClip"))
     samples = set()
     for ref in el.iter("SampleRef"):
@@ -157,6 +161,7 @@ def _track(el):
         "kind": TRACK_KINDS[el.tag],
         "name": _value(el, "Name/EffectiveName") or _value(el, "Name/UserName") or el.tag,
         "plugins": plugins,
+        "plugin_states": states,
         "clips": len(midi_clips) + sum(1 for _ in el.iter("AudioClip")),
         "notes": sum(1 for c in midi_clips for _ in c.iter("MidiNoteEvent")),
         "samples": sorted(samples),
@@ -271,6 +276,9 @@ def diff_sets(a, b):
             lines.append(f'+ "{n["name"]}": added plugin {name} ({fmt})')
         for name, fmt in (before - after).elements():
             lines.append(f'- "{n["name"]}": removed plugin {name} ({fmt})')
+        if before == after:
+            for name in sorted({name for (name, h) in set(o["plugin_states"]) ^ set(n["plugin_states"])}):
+                lines.append(f'~ "{n["name"]}": {name} settings changed inside the plugin (Live can\'t show what)')
         if (o["clips"], o["notes"]) != (n["clips"], n["notes"]):
             lines.append(f'~ "{n["name"]}": clips {o["clips"]} -> {n["clips"]}, '
                          f'notes {o["notes"]} -> {n["notes"]}')
