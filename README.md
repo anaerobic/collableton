@@ -122,10 +122,16 @@ printed and doesn't stop anything.
   lives inside EZdrummer's own song creator. Live can't show or edit those notes. Drag the
   groove from the plugin into a Live clip. The groove is still shared either way: it's saved
   inside the plugin's settings, which travel with the set.
-- **WARN: a plugin refers to an audio file inside its own settings.** For example, audio you
-  loaded into EZdrummer to build a groove from. Collect All can't copy those files, so your
-  collaborator won't have them. If the plugin needs the file, copy it into the project folder
-  and load it from there inside the plugin.
+- **WARN: a plugin saved the path to an audio file inside its own settings.** For example,
+  audio you loaded into EZdrummer to build a groove from. Plugins save the full path, which
+  starts with your home folder, so on the other Mac the plugin asks for the file ("Missing
+  Audio File") even when the song has it. The warning says which case you're in:
+  - *saved the full path to "Samples/…"*: the file is in the song and travels with it. On the
+    other Mac, when the plugin asks, browse to that file in the song's project folder.
+  - *saved a path from another Mac*: your collaborator loaded it, and your copy of the song
+    has the file. If the plugin asks, browse to the file the warning names.
+  - *refers to "…"*: the file is outside the song, and Collect All can't copy it. If the
+    plugin needs it, copy it into the project folder and load it from there inside the plugin.
 - **WARN: saved with a newer Live.** The set was saved by a Live newer than
   `min_live_version`, so the other person may not be able to open it.
 - **WARN: more than 16 audio/MIDI tracks.** Live Intro can't have more than 16.

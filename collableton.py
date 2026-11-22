@@ -279,6 +279,44 @@ def sample_problem(path, rel, project_dir, exists=os.path.exists):
     return "is outside the project folder"
 
 
+def in_this_song(path, project_dir, exists=os.path.exists):
+    """Where the file a plugin saved a full path to sits in this song's project folder
+    (relative to it), or None. Plugins save absolute paths, so a file loaded from the song's
+    folder on the other Mac shows up under their home folder. Match on the project folder's
+    name, or (song folders get renamed) on the part from Samples/ on."""
+    real = os.path.realpath(path)
+    project = os.path.realpath(project_dir)
+    if real.startswith(os.path.join(project, "")):
+        return os.path.relpath(real, project) if exists(path) else None
+    parts = path.split("/")
+    name = os.path.basename(project)
+    starts = [i + 1 for i, p in enumerate(parts) if p == name] + [i for i, p in enumerate(parts) if p == "Samples"]
+    for i in starts:
+        rel = "/".join(parts[i:])
+        if rel and exists(os.path.join(project_dir, rel)):
+            return rel
+    return None
+
+
+def plugin_file_problem(track, name, path, project_dir, exists=os.path.exists):
+    """The WARN for an audio file a plugin saved a full path to, or None for its own library."""
+    if sample_problem(path, "", project_dir, exists) is None:
+        # In this song's folder on this Mac: the file travels, this Mac's path doesn't.
+        rel = in_this_song(path, project_dir, exists)
+        return (f'Track "{track}": {name} saved the full path to "{rel}" inside its own settings. The file '
+                f"travels with the song, but the path won't match on the other Mac. If {name} asks for the "
+                f'file there, browse to "{rel}" in the song\'s project folder.')
+    rel = in_this_song(path, project_dir, exists)
+    if rel:
+        return (f'Track "{track}": {name} saved a path from another Mac inside its own settings ("{path}"). '
+                f'Your copy of the song has that file: if {name} asks for it, browse to "{rel}" in the '
+                "song's project folder.")
+    return (f'Track "{track}": {name} refers to "{path}" inside its own settings. Collect All can\'t copy '
+            "that, so your collaborator won't have it. If the plugin needs the file, copy it into the project "
+            "folder and load it from there inside the plugin. The plugin still saves this Mac's path, so on "
+            "the other Mac they'll have to browse to it once.")
+
+
 def check_set(summary, cfg, project_dir, exists=os.path.exists):
     """-> list of ("ERROR" | "WARN", message). Duplicates removed, order kept."""
     out = []
@@ -299,11 +337,7 @@ def check_set(summary, cfg, project_dir, exists=os.path.exists):
                 out.append(("ERROR", f'Track "{t["name"]}": "{name}" is loaded as {pfmt}, but you agreed '
                                      f'on {fmt}. Replace it with the {fmt} version.'))
         for name, path in t.get("plugin_files", []):
-            if sample_problem(path, "", project_dir, exists):
-                out.append(("WARN", f'Track "{t["name"]}": {name} refers to "{path}" inside its own settings. '
-                                    "Collect All can't copy that, so your collaborator won't have it. If the "
-                                    "plugin needs the file, copy it into the project folder and load it from there "
-                                    "inside the plugin."))
+            out.append(("WARN", plugin_file_problem(t["name"], name, path, project_dir, exists)))
         if t["kind"] == "MIDI" and t["plugins"] and t["notes"] == 0:
             out.append(("WARN", f'Track "{t["name"]}" plays {t["plugins"][0][0]} but has no MIDI notes '
                                 'in Live. The groove may live inside the plugin, where Live can\'t '

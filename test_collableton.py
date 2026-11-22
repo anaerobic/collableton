@@ -56,6 +56,13 @@ CFG = dict(collableton.DEFAULT_CONFIG)
 EZ = track("MidiTrack", 1, "Drums", plugin("EZdrummer 3") + midi_clip(8))
 
 
+def ez_with(payload):
+    """An EZdrummer track whose saved state holds payload, hex-encoded the way Live writes it."""
+    hexed = binascii.hexlify(payload).decode()
+    state = "\n\t" + "\n\t".join(hexed[i:i + 64] for i in range(0, len(hexed), 64))
+    return track("MidiTrack", 1, "Drums", plugin("EZdrummer 3", state=state) + midi_clip(8))
+
+
 def findings(*tracks, cfg=CFG, project="/proj", exists=lambda p: True, **kw):
     return collableton.check_set(summary(*tracks, **kw), cfg, project, exists)
 
@@ -150,16 +157,39 @@ class CheckTest(unittest.TestCase):
             self.assertEqual(riff_problem("/elsewhere/kick.wav", "kick.wav", proj), "is outside the project folder")
 
     def test_audio_path_saved_inside_a_plugin_warns(self):
-        def ez(payload):
-            hexed = binascii.hexlify(payload).decode()
-            state = "\n\t" + "\n\t".join(hexed[i:i + 64] for i in range(0, len(hexed), 64))  # as Live writes it
-            return track("MidiTrack", 1, "Drums", plugin("EZdrummer 3", state=state) + midi_clip(8))
-        f = findings(ez(b'Tempo 60 InputAudio "/Users/pat/Desktop/doodle.aif" { Events 1 2 3'))
+        f = findings(ez_with(b'Tempo 60 InputAudio "/Users/pat/Desktop/doodle.aif" { Events 1 2 3'))
         self.assertEqual([l for l, _ in f], ["WARN"])
         self.assertIn('"/Users/pat/Desktop/doodle.aif" inside its own settings', f[0][1])
+        self.assertIn("Collect All can't copy that", f[0][1])
         library = b'Library "/Library/Application Support/Toontrack/EZdrummer/Kit.wav" Drums "/Volumes/SSD/Toontrack/'
-        self.assertEqual(levels(ez(library)), [])
-        self.assertEqual(levels(ez(b'InputAudio "/proj/Samples/doodle.aif"')), [])  # inside the project
+        self.assertEqual(levels(ez_with(library)), [])
+
+    def test_plugin_audio_in_the_project_still_warns_the_author(self):
+        # The plugin saved this Mac's full path: the file travels, the path doesn't.
+        f = findings(ez_with(b'InputAudio "/Users/pat/jams/song/song Project/Samples/Recorded/take.wav"'),
+                     project="/Users/pat/jams/song/song Project")
+        self.assertEqual([l for l, _ in f], ["WARN"])
+        self.assertIn('browse to "Samples/Recorded/take.wav"', f[0][1])
+        self.assertNotIn("Collect All", f[0][1])
+
+    def test_plugin_audio_from_the_other_mac_points_at_this_copy(self):
+        theirs = b'InputAudio "/Users/sam/Music/Collab/fmaj-fu/fmaj-fu Project/Samples/Recorded/take.wav"'
+        mine = "/me/jams/fmaj-fu/fmaj-fu Project/Samples/Recorded/take.wav"
+        f = findings(ez_with(theirs), project="/me/jams/fmaj-fu/fmaj-fu Project", exists=lambda p: p == mine)
+        self.assertEqual([l for l, _ in f], ["WARN"])
+        self.assertIn("path from another Mac", f[0][1])
+        self.assertIn('browse to "Samples/Recorded/take.wav"', f[0][1])
+
+    def test_plugin_audio_from_a_renamed_song_folder_matches_on_samples(self):
+        theirs = b'InputAudio "/Users/sam/Music/Collab/old-name/old-name Project/Samples/Imported/doodle.aif"'
+        mine = "/me/jams/new-name/new-name Project/Samples/Imported/doodle.aif"
+        f = findings(ez_with(theirs), project="/me/jams/new-name/new-name Project", exists=lambda p: p == mine)
+        self.assertIn('browse to "Samples/Imported/doodle.aif"', f[0][1])
+
+    def test_plugin_audio_from_the_other_mac_not_in_this_copy(self):
+        theirs = b'InputAudio "/Users/sam/Music/Collab/song/song Project/Samples/Recorded/take.wav"'
+        f = findings(ez_with(theirs), project="/me/song Project", exists=lambda p: False)
+        self.assertIn("Collect All can't copy that", f[0][1])
 
     def test_device_preset_refs_ignored(self):
         self.assertEqual(levels(track("MidiTrack", 1, "x", PRESET_REF + midi_clip(1))), [])
