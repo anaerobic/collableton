@@ -168,17 +168,35 @@ def read_als(data):
 PLUGIN_AUDIO_PATH = re.compile(rb"/(?:Users|Volumes)/[^\"\x00\r\n<>|]*?\.(?:wav|aiff?|mp3|flac|ogg|m4a)(?=[\"\x00\r\n]|$)", re.I)
 
 
+def _unhex(state_hex):
+    """A plugin's saved state as Live stores it (hex text) -> bytes; b"" if it isn't hex."""
+    try:
+        return binascii.unhexlify(re.sub(r"\s", "", state_hex))
+    except (binascii.Error, ValueError):
+        return b""
+
+
 def audio_paths_in(state_hex):
     """Audio file paths a plugin saved inside its own (hex-encoded) state, e.g. EZdrummer's audio input."""
-    try:
-        raw = binascii.unhexlify(re.sub(r"\s", "", state_hex))
-    except (binascii.Error, ValueError):
-        return []
-    return sorted({m.group().decode("utf-8", "replace") for m in PLUGIN_AUDIO_PATH.finditer(raw)})
+    return sorted({m.group().decode("utf-8", "replace") for m in PLUGIN_AUDIO_PATH.finditer(_unhex(state_hex))})
+
+
+# EZdrummer 3 saves its song as text: one MidiLoop per part, with the groove's name and an
+# Events line of three numbers per hit. Other plugins' state is opaque, so this finds nothing there.
+EZ_PART = re.compile(rb'MidiLoop \d+ \{\nName "([^"\n]*)"(.*?)(?=MidiLoop \d+ \{|\Z)', re.S)
+
+
+def grooves_in(state_hex):
+    """[(groove name, hits)] for each part of an EZdrummer song, in order."""
+    parts = []
+    for m in EZ_PART.finditer(_unhex(state_hex)):
+        events = re.search(rb"^Events ([^\n]*)", m.group(2), re.M)
+        parts.append((m.group(1).decode("utf-8", "replace"), len(events.group(1).split()) // 3 if events else 0))
+    return parts
 
 
 def _track(el):
-    plugins, states, plugin_files = [], [], []
+    plugins, states, plugin_files, grooves = [], [], [], []
     for dev in el.iter():
         if dev.tag in PLUGIN_DEVICES:
             info = next((e for e in dev.iter() if e.tag in PLUGIN_FORMATS), None)
@@ -188,6 +206,7 @@ def _track(el):
                 # The plugin's own saved settings (e.g. an EZdrummer groove): opaque, but we can tell if they changed.
                 blob = "".join(t.strip() for ps in dev.iter("ProcessorState") for t in ps.itertext())
                 states.append((name, hashlib.sha1(blob.encode()).hexdigest()))
+                grooves.append((name, grooves_in(blob)))
                 plugin_files += [(name, f) for f in audio_paths_in(blob)]
     midi_clips = list(el.iter("MidiClip"))
     samples = set()
@@ -201,6 +220,7 @@ def _track(el):
         "name": _value(el, "Name/EffectiveName") or _value(el, "Name/UserName") or el.tag,
         "plugins": plugins,
         "plugin_states": states,
+        "plugin_grooves": grooves,
         "plugin_files": sorted(set(plugin_files)),
         "clips": len(midi_clips) + sum(1 for _ in el.iter("AudioClip")),
         "notes": sum(1 for c in midi_clips for _ in c.iter("MidiNoteEvent")),
@@ -300,6 +320,20 @@ def _describe(t):
     return f'"{t["name"]}" ({", ".join(bits)})'
 
 
+def _groove_lines(track, plugin, old, new):
+    out = []
+    for i in range(max(len(old), len(new))):
+        o, n = (old[i] if i < len(old) else None), (new[i] if i < len(new) else None)
+        if o == n:
+            continue
+        label = f'"{track}": {plugin} part {i + 1}: '
+        if o and n:
+            out.append(f"~ {label}{o[0]}, {o[1]} hits -> {n[0]}, {n[1]} hits")
+        else:
+            out.append(f"{'+' if n else '-'} {label}{(n or o)[0]}, {(n or o)[1]} hits")
+    return out
+
+
 def diff_sets(a, b):
     """Two summaries -> human-readable lines. Tracks are matched by Live's track Id."""
     lines = []
@@ -324,7 +358,11 @@ def diff_sets(a, b):
             lines.append(f'- "{n["name"]}": removed plugin {name} ({fmt})')
         if before == after:
             for name in sorted({name for (name, h) in set(o["plugin_states"]) ^ set(n["plugin_states"])}):
-                lines.append(f'~ "{n["name"]}": {name} settings changed inside the plugin (Live can\'t show what)')
+                # ponytail: groove changes hide any other settings change in the same plugin; compare the
+                # rest of the state too if that ever matters.
+                parts = _groove_lines(n["name"], name, dict(o["plugin_grooves"]).get(name, []),
+                                      dict(n["plugin_grooves"]).get(name, []))
+                lines += parts or [f'~ "{n["name"]}": {name} settings changed inside the plugin (Live can\'t show what)']
         if (o["clips"], o["notes"]) != (n["clips"], n["notes"]):
             lines.append(f'~ "{n["name"]}": clips {o["clips"]} -> {n["clips"]}, '
                          f'notes {o["notes"]} -> {n["notes"]}')

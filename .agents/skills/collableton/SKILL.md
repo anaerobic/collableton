@@ -106,7 +106,9 @@ they've done it. Fix only what the message names; don't reorganize their project
 ## Seeing what changed
 
 `collableton diff` prints a short summary: tracks added, removed or renamed, plugins, clip and
-note counts per track, tempo, and Live version.
+note counts per track, tempo, and Live version. For EZdrummer 3 it also names each song part
+whose groove changed, with hit counts (`part 3: Build-Up I 01, 120 hits -> Breakdown 04, 168 hits`).
+For other plugins it can only say that their settings changed.
 
 - `collableton diff`: the working copy against the last shared version.
 - `collableton diff HEAD~1 HEAD`: the last two shared versions. Use `git log --oneline` to find
