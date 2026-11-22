@@ -360,8 +360,11 @@ def diff_sets(a, b):
             for name in sorted({name for (name, h) in set(o["plugin_states"]) ^ set(n["plugin_states"])}):
                 # ponytail: groove changes hide any other settings change in the same plugin; compare the
                 # rest of the state too if that ever matters.
-                parts = _groove_lines(n["name"], name, dict(o["plugin_grooves"]).get(name, []),
-                                      dict(n["plugin_grooves"]).get(name, []))
+                # Same plugins on both sides here, so instances with one name pair up in track order.
+                olds = [g for p, g in o["plugin_grooves"] if p == name]
+                news = [g for p, g in n["plugin_grooves"] if p == name]
+                parts = [line for i, (og, ng) in enumerate(zip(olds, news))
+                         for line in _groove_lines(n["name"], f"{name} #{i + 1}" if len(news) > 1 else name, og, ng)]
                 lines += parts or [f'~ "{n["name"]}": {name} settings changed inside the plugin (Live can\'t show what)']
         if (o["clips"], o["notes"]) != (n["clips"], n["notes"]):
             lines.append(f'~ "{n["name"]}": clips {o["clips"]} -> {n["clips"]}, '
