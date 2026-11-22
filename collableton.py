@@ -525,6 +525,10 @@ def cmd_take(args):
         if path not in mine:
             run("git", "-C", root, "lfs", "lock", "--json", path)
     print("You have it: " + ", ".join(sets))
+    if args.open and len(sets) == 1:
+        run("open", os.path.join(root, sets[0]))  # macOS hands .als files to Live
+    elif args.open:
+        print("Not opening Live: this folder has more than one set. Open the one you want in Live.")
     print('Work in Live, save, then: collableton give -m "what you did"')
     return 0
 
@@ -671,7 +675,9 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="command")
     sub.add_parser("init", help="set up this Live project folder for sharing").set_defaults(fn=cmd_init)
-    sub.add_parser("take", help="get the latest version and lock it so only you can change it").set_defaults(fn=cmd_take)
+    p = sub.add_parser("take", help="get the latest version and lock it so only you can change it")
+    p.add_argument("--open", action="store_true", help="then open the set in Live")
+    p.set_defaults(fn=cmd_take)
     p = sub.add_parser("give", help="check, share your changes, and unlock")
     p.add_argument("-m", "--message", required=True, help="what you changed")
     p.add_argument("--force", action="store_true", help="share even if the check finds errors")

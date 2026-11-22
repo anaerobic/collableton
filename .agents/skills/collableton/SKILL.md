@@ -28,7 +28,8 @@ collableton give -m "what changed"    # check, commit, push, unlock
 - Run `collableton status` first when you're not sure of the state.
 - Have them `take` a song before opening it in Live, not after. Sets are read-only until taken,
   but Live saves over read-only sets without a warning, so read-only stops nothing; `give` is
-  what catches an edit to a set they never took.
+  what catches an edit to a set they never took. `collableton take --open` takes the song and
+  then opens it in Live, so suggest it when they want to start working on a song.
 - Remind them to save and close the set in Live before `give`. A set that's still open can get
   saved again after it's shared.
 - For the give message, describe what changed in the music ("added a Serum bassline, tempo

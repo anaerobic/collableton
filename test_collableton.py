@@ -406,6 +406,40 @@ class GitFlowTest(CliTest):
         self.assertIn("!!! --force", out)
         self.assertIn("without taking it first", out)  # --force never skips the lock check
 
+    def test_take_open_opens_the_set_only_after_locking_it(self):
+        sh("git", "remote", "add", "origin", self.remote)
+        os.makedirs("Song A Project")
+        os.makedirs("Song B Project")
+        self.write("Song A Project/A.als", als(EZ))
+        self.write("Song B Project/B.als", als(EZ))
+        self.commit("two songs")
+        real_run, calls = collableton.run, []
+
+        def run(*cmd, **kw):
+            if cmd[0] == "open":
+                return calls.append(("open", os.path.relpath(cmd[-1]))) or ""
+            if cmd[3:5] == ("lfs", "lock"):
+                return calls.append(("lock", cmd[-1])) or ""
+            return real_run(*cmd, **kw)
+
+        os.chdir("Song A Project")
+        with self.fake_locks(), mock.patch.object(collableton, "run", run):
+            self.assertEqual(self.cli("take", "--open")[0], 0)
+        self.assertEqual(calls, [("lock", "Song A Project/A.als"), ("open", "A.als")])
+
+        theirs = [{"id": "1", "path": "Song A Project/A.als", "owner": {"name": "pma"},
+                   "locked_at": "2026-11-18T21:03:44Z"}]
+        with self.fake_locks(theirs=theirs), mock.patch.object(collableton, "run", run):
+            self.assertEqual(self.cli("take", "--open")[0], 1)
+        self.assertEqual(len(calls), 2)  # someone else has it: Live stays closed
+
+        os.chdir("..")  # every song at once: Live shows one set at a time, so open none
+        with self.fake_locks(), mock.patch.object(collableton, "run", run):
+            code, out = self.cli("take", "--open")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("open", [c[0] for c in calls[2:]])
+        self.assertIn("more than one set", out)
+
     def test_take_and_give_act_on_the_song_folder_you_are_in(self):
         sh("git", "remote", "add", "origin", self.remote)
         os.makedirs("Song A Project")

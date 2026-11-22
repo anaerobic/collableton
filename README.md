@@ -83,6 +83,8 @@ collableton give -m "added a bassline"  # check it, share it, unlock it
   `collableton init`). It puts back the song's empty `Ableton Project Info` folder, which git
   doesn't keep.
 - `take` refuses if the other person has the song, and tells you who has it and since when.
+- `collableton take --open` also opens the set in Live once it's yours. It opens nothing if
+  someone else has the song, or if the folder holds more than one set.
 - `give` refuses to share a set you changed without taking it, so nobody's work gets
   overwritten.
 - To start a new song, use *File > Save Live Set As* to save it into a new folder in the music
