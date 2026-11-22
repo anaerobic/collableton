@@ -526,7 +526,9 @@ def cmd_take(args):
             run("git", "-C", root, "lfs", "lock", "--json", path)
     print("You have it: " + ", ".join(sets))
     if args.open and len(sets) == 1:
-        run("open", os.path.join(root, sets[0]))  # macOS hands .als files to Live
+        # macOS hands .als files to Live. The lock is already ours, so a failed open isn't a failed take.
+        if run("open", os.path.join(root, sets[0]), check=False).returncode != 0:
+            print(f"Couldn't open it in Live. The song is still yours: open {sets[0]} in Live yourself.")
     elif args.open:
         print("Not opening Live: this folder has more than one set. Open the one you want in Live.")
     print('Work in Live, save, then: collableton give -m "what you did"')

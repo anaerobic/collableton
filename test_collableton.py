@@ -413,11 +413,12 @@ class GitFlowTest(CliTest):
         self.write("Song A Project/A.als", als(EZ))
         self.write("Song B Project/B.als", als(EZ))
         self.commit("two songs")
-        real_run, calls = collableton.run, []
+        real_run, calls, open_code = collableton.run, [], 0
 
         def run(*cmd, **kw):
             if cmd[0] == "open":
-                return calls.append(("open", os.path.relpath(cmd[-1]))) or ""
+                calls.append(("open", os.path.relpath(cmd[-1])))
+                return mock.Mock(returncode=open_code)
             if cmd[3:5] == ("lfs", "lock"):
                 return calls.append(("lock", cmd[-1])) or ""
             return real_run(*cmd, **kw)
@@ -426,6 +427,13 @@ class GitFlowTest(CliTest):
         with self.fake_locks(), mock.patch.object(collableton, "run", run):
             self.assertEqual(self.cli("take", "--open")[0], 0)
         self.assertEqual(calls, [("lock", "Song A Project/A.als"), ("open", "A.als")])
+        open_code = 1  # Live didn't open: take still succeeded, so say the song is yours
+        with self.fake_locks(ours=[{"id": "1", "path": "Song A Project/A.als"}]), \
+                mock.patch.object(collableton, "run", run):
+            code, out = self.cli("take", "--open")
+        self.assertEqual(code, 0, out)
+        self.assertIn("The song is still yours", out)
+        del calls[2:]
 
         theirs = [{"id": "1", "path": "Song A Project/A.als", "owner": {"name": "pma"},
                    "locked_at": "2026-11-18T21:03:44Z"}]
