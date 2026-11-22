@@ -44,8 +44,9 @@ Verified against Live 12.4 saves:
 - A new project's `Ableton Project Info` folder is empty, and git drops empty folders. Live
   treats a folder as a Project only if it has one, so `init` and `take` recreate it.
 - Clips in Live's Groove Pool are `MidiClip`s too, but not on a track. Count clips per track.
-- A plugin's own state (e.g. an EZdrummer groove) lives in an opaque `ProcessorState` blob,
-  not in Live clips.
+- A plugin's own state (e.g. an EZdrummer groove) lives in a hex `ProcessorState` blob, not in
+  Live clips. Most plugins' blobs are opaque. EZdrummer 3's (3.1.2) is mostly text: one
+  `MidiLoop N {` per song part, with `Name "…"` and an `Events` line of three numbers per hit.
 - Device-preset `FileRef`s are not samples. Only `SampleRef/FileRef` counts.
 
 ## When you change behavior
