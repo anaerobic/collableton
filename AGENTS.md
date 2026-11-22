@@ -46,7 +46,9 @@ Verified against Live 12.4 saves:
 - Clips in Live's Groove Pool are `MidiClip`s too, but not on a track. Count clips per track.
 - A plugin's own state (e.g. an EZdrummer groove) lives in a hex `ProcessorState` blob, not in
   Live clips. Most plugins' blobs are opaque. EZdrummer 3's (3.1.2) is mostly text: one
-  `MidiLoop N {` per song part, with `Name "…"` and an `Events` line of three numbers per hit.
+  `MidiLoop N {` per song part, with `Name "…"` (the library groove), `Offset` in beats from the song's
+  start (in 4/4, bar = Offset / 4 + 1, checked against EZdrummer's ruler), `From "…"` (the lead
+  instrument EZdrummer shows as the part's label) and an `Events` line of three numbers per hit.
 - Device-preset `FileRef`s are not samples. Only `SampleRef/FileRef` counts.
 
 ## When you change behavior

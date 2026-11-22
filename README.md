@@ -97,7 +97,8 @@ collableton give -m "added a bassline"  # check it, share it, unlock it
 - `collableton diff`: what changed since the last give. `collableton diff HEAD~1 HEAD`
   compares the last two shared versions, and `collableton diff a.als b.als` compares two
   files. You get a short summary (tracks, plugins, clips, notes, tempo, Live version), not
-  XML. For EZdrummer 3 it also lists each song part whose groove changed, with its hit count.
+  XML. For EZdrummer 3 it also lists each song part whose groove changed, with its hit count
+  and, in 4/4, the bar it starts at.
   Other plugins only say that their settings changed.
 - `collableton check`: runs the checks below on the sets in this folder, without sharing
   anything.

@@ -107,7 +107,9 @@ they've done it. Fix only what the message names; don't reorganize their project
 
 `collableton diff` prints a short summary: tracks added, removed or renamed, plugins, clip and
 note counts per track, tempo, and Live version. For EZdrummer 3 it also names each song part
-whose groove changed, with hit counts (`part 3: Build-Up I 01, 120 hits -> Breakdown 04, 168 hits`).
+whose groove changed, with hit counts and, in 4/4, its starting bar
+(`part 3 (bar 25): Build-Up I 01, 120 hits -> Breakdown 04, 168 hits`). The name is the library groove
+the part came from; EZdrummer's song track labels parts by their lead instrument instead.
 For other plugins it can only say that their settings changed.
 
 - `collableton diff`: the working copy against the last shared version.

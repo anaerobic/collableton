@@ -181,17 +181,24 @@ def audio_paths_in(state_hex):
     return sorted({m.group().decode("utf-8", "replace") for m in PLUGIN_AUDIO_PATH.finditer(_unhex(state_hex))})
 
 
-# EZdrummer 3 saves its song as text: one MidiLoop per part, with the groove's name and an
-# Events line of three numbers per hit. Other plugins' state is opaque, so this finds nothing there.
+# EZdrummer 3 saves its song as text: one MidiLoop per part, with the groove's name, its Offset
+# in beats from the song's start, and an Events line of three numbers per hit. Other plugins'
+# state is opaque, so this finds nothing there.
 EZ_PART = re.compile(rb'MidiLoop \d+ \{\nName "([^"\n]*)"(.*?)(?=MidiLoop \d+ \{|\Z)', re.S)
 
 
 def grooves_in(state_hex):
-    """[(groove name, hits)] for each part of an EZdrummer song, in order."""
+    """[(groove name, hits, bar or None)] for each part of an EZdrummer song, in order."""
+    raw = _unhex(state_hex)
+    # ponytail: bars only for an all-4/4 song, the one meter checked against EZdrummer's ruler;
+    # other meters need the time-signature map.
+    four_four = all(sig == b"4 4" for sig in re.findall(rb"^TimeSig (\d+ \d+)", raw, re.M))
     parts = []
-    for m in EZ_PART.finditer(_unhex(state_hex)):
+    for m in EZ_PART.finditer(raw):
         events = re.search(rb"^Events ([^\n]*)", m.group(2), re.M)
-        parts.append((m.group(1).decode("utf-8", "replace"), len(events.group(1).split()) // 3 if events else 0))
+        offset = re.search(rb"^Offset ([\d.]+)", m.group(2), re.M)
+        bar = float(offset.group(1)) / 4 + 1 if four_four and offset else None
+        parts.append((m.group(1).decode("utf-8", "replace"), len(events.group(1).split()) // 3 if events else 0, bar))
     return parts
 
 
@@ -326,7 +333,8 @@ def _groove_lines(track, plugin, old, new):
         o, n = (old[i] if i < len(old) else None), (new[i] if i < len(new) else None)
         if o == n:
             continue
-        label = f'"{track}": {plugin} part {i + 1}: '
+        bars = list(dict.fromkeys(f"{p[2]:g}" for p in (o, n) if p and p[2] is not None))  # old -> new, once if same
+        label = f'"{track}": {plugin} part {i + 1}{" (bar " + " -> ".join(bars) + ")" if bars else ""}: '
         if o and n:
             out.append(f"~ {label}{o[0]}, {o[1]} hits -> {n[0]}, {n[1]} hits")
         else:
@@ -357,7 +365,9 @@ def diff_sets(a, b):
         for name, fmt in (before - after).elements():
             lines.append(f'- "{n["name"]}": removed plugin {name} ({fmt})')
         if before == after:
-            for name in sorted({name for (name, h) in set(o["plugin_states"]) ^ set(n["plugin_states"])}):
+            def states(t, name):
+                return [h for p, h in t["plugin_states"] if p == name]
+            for name in sorted({p for p, _ in n["plugin_states"] if states(o, p) != states(n, p)}):
                 # ponytail: groove changes hide any other settings change in the same plugin; compare the
                 # rest of the state too if that ever matters.
                 # Same plugins on both sides here, so instances with one name pair up in track order.

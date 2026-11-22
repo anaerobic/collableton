@@ -232,11 +232,12 @@ class DiffTest(unittest.TestCase):
                          ['~ "Drums": EZdrummer 3 settings changed inside the plugin (Live can\'t show what)'])
 
     def test_ezdrummer_grooves_changed(self):
-        def ez_plugin(*parts, kit=b"Post-Rock"):
+        def ez_plugin(*parts, kit=b"Post-Rock", sig=b"4 4"):
             # Shaped like EZdrummer 3's saved song: one MidiLoop per part, each hit is 3 numbers.
-            text = b'PlugVersion 3.1.2\nsoundlib "%s"\nSongTrack 0 {\nTempo 72 0 0\n' % kit + b"".join(
-                b'MidiLoop %d {\nName "%s"\nOffset %d\nMidiEvents { \nEndTime 32\nEvents %s\n}\nTempo 84 0 0\n}\n'
-                % (i, name.encode(), 32 * (i + 1), b"6235280 0 0.13 " * hits) for i, (name, hits) in enumerate(parts))
+            # Offset is in beats from the song's start: here each part is 8 bars of 4/4.
+            text = b'PlugVersion 3.1.2\nsoundlib "%s"\nSongTrack 0 {\nTimeSig %s 0\n' % (kit, sig) + b"".join(
+                b'MidiLoop %d {\nName "%s"\nOffset %d\nTimeSig %s\nMidiEvents { \nEndTime 32\nEvents %s\n}\n}\n'
+                % (i, name.encode(), 32 * i, sig, b"6235280 0 0.13 " * hits) for i, (name, hits) in enumerate(parts))
             hexed = binascii.hexlify(b"VstW\x00\x00\x00\x08" + text).decode()
             state = "\n\t" + "\n\t".join(hexed[i:i + 64] for i in range(0, len(hexed), 64))  # as Live writes it
             return plugin("EZdrummer 3", state=state)
@@ -246,10 +247,13 @@ class DiffTest(unittest.TestCase):
         before = ez(("Build-Up I 01", 120), ("Build-Up I 01", 120), ("Verse 02", 194))
         after = ez(("Build-Up I 01", 120), ("Breakdown 04", 168), ("Verse 02", 200), ("Fill 01", 12))
         self.assertEqual(self.diff(before, after), [
-            '~ "Drums": EZdrummer 3 part 2: Build-Up I 01, 120 hits -> Breakdown 04, 168 hits',
-            '~ "Drums": EZdrummer 3 part 3: Verse 02, 194 hits -> Verse 02, 200 hits',
-            '+ "Drums": EZdrummer 3 part 4: Fill 01, 12 hits'])
-        self.assertEqual(self.diff(after, before)[-1], '- "Drums": EZdrummer 3 part 4: Fill 01, 12 hits')
+            '~ "Drums": EZdrummer 3 part 2 (bar 9): Build-Up I 01, 120 hits -> Breakdown 04, 168 hits',
+            '~ "Drums": EZdrummer 3 part 3 (bar 17): Verse 02, 194 hits -> Verse 02, 200 hits',
+            '+ "Drums": EZdrummer 3 part 4 (bar 25): Fill 01, 12 hits'])
+        self.assertEqual(self.diff(after, before)[-1], '- "Drums": EZdrummer 3 part 4 (bar 25): Fill 01, 12 hits')
+        # Only 4/4 has been checked against EZdrummer's bar numbers, so other meters show no bar.
+        self.assertEqual(self.diff(ez(("Fill 01", 12), sig=b"6 8"), ez(("Fill 02", 14), sig=b"6 8")),
+                         ['~ "Drums": EZdrummer 3 part 1: Fill 01, 12 hits -> Fill 02, 14 hits'])
         # Same parts, another setting changed (here the kit): all we can say is that something changed.
         self.assertEqual(self.diff(before, ez(("Build-Up I 01", 120), ("Build-Up I 01", 120), ("Verse 02", 194),
                                               kit=b"Modern")),
@@ -258,7 +262,13 @@ class DiffTest(unittest.TestCase):
         def two(first):
             return summary(track("MidiTrack", 1, "Drums", ez_plugin(first) + ez_plugin(("Verse 02", 194))))
         self.assertEqual(self.diff(two(("Fill 01", 12)), two(("Fill 02", 14))),
-                         ['~ "Drums": EZdrummer 3 #1 part 1: Fill 01, 12 hits -> Fill 02, 14 hits'])
+                         ['~ "Drums": EZdrummer 3 #1 part 1 (bar 1): Fill 01, 12 hits -> Fill 02, 14 hits'])
+        # Swapping two instances' settings is a change in each place, not "no changes".
+        def pair(a, b):
+            return summary(track("MidiTrack", 1, "Drums", ez_plugin(a) + ez_plugin(b)))
+        self.assertEqual(self.diff(pair(("Fill 01", 12), ("Fill 02", 14)), pair(("Fill 02", 14), ("Fill 01", 12))),
+                         ['~ "Drums": EZdrummer 3 #1 part 1 (bar 1): Fill 01, 12 hits -> Fill 02, 14 hits',
+                          '~ "Drums": EZdrummer 3 #2 part 1 (bar 1): Fill 02, 14 hits -> Fill 01, 12 hits'])
 
     def test_clip_and_note_counts(self):
         after = summary(track("MidiTrack", 1, "Drums", plugin("EZdrummer 3") + midi_clip(8) + midi_clip(16)))
